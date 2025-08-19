@@ -14,8 +14,11 @@ MY_ACCOUNT_ID = os.environ.get("MY_ACCOUNT_ID")
 # Bot service is starting...
 print("Bot service is starting...")
 
-def send_message(room_id, message_body):
-    """Chatworkにメッセージを送信する共通関数"""
+def send_message(room_id, message_body, reply_to_id=None):
+    """
+    Chatworkにメッセージを送信する共通関数
+    返信したいメッセージのIDをreply_to_idとして渡す
+    """
     headers = {
         "X-ChatWorkToken": CHATWORK_API_TOKEN,
         "Content-Type": "application/x-www-form-urlencoded"
@@ -23,19 +26,27 @@ def send_message(room_id, message_body):
     payload = {
         "body": message_body
     }
+    
+    # 返信IDが指定されていれば、ペイロードに追加
+    if reply_to_id:
+        payload["body"] = f"[rp aid={reply_to_id}] \n{message_body}"
+
     requests.post(f"https://api.chatwork.com/v2/rooms/{room_id}/messages", headers=headers, data=payload)
+    print("Response sent successfully.")
+
 
 @app.route("/", methods=["POST"])
 def chatwork_webhook():
     print(f"[{datetime.now().isoformat()}] Received a new webhook request.")
     try:
         data = request.json
-        webhook_data = data.get("webhook_event")
-        message_body = webhook_data.get("body")
-        account_id = webhook_data.get("account_id")
-        room_id = webhook_data.get("room_id")
+        webhook_event = data.get("webhook_event")
+        message_body = webhook_event.get("body")
+        account_id = webhook_event.get("account_id")
+        room_id = webhook_event.get("room_id")
+        message_id = webhook_event.get("message_id")
         
-        print(f"Message received from Account ID: {account_id}, Room ID: {room_id}")
+        print(f"Message received from Account ID: {account_id}, Room ID: {room_id}, Message ID: {message_id}")
         print(f"Message body: '{message_body}'")
         
         # 自分宛てではないことを確認
@@ -45,18 +56,21 @@ def chatwork_webhook():
                 jst = timezone(timedelta(hours=9), 'JST')
                 now_jst = datetime.now(jst)
                 current_time = now_jst.strftime("%Y/%m/%d %H:%M:%S")
-                send_message(room_id, f"現在の時刻は {current_time} です。")
+                
+                # 返信機能を使ってメッセージを送信
+                reply_message = f"現在の時刻は {current_time} です。"
+                send_message(room_id, reply_message, reply_to_id=account_id)
             
             # "omikuji" が含まれていたらおみくじを引く
             elif "omikuji" in message_body:
                 omikuji_results = ["大吉🎉", "吉😊", "中吉🙂", "小吉😅", "末吉🤔", "凶😭"]
-                # 各結果の確率（重み）を設定。合計が1になる必要はないが、相対的な比率が重要。
-                # 例: 大吉の重みは5、凶は1。つまり大吉は凶の5倍出やすい
                 omikuji_weights = [5, 4, 3, 2, 2, 1]
                 
-                # choices()メソッドを使って重み付きで選択
                 result = random.choices(omikuji_results, weights=omikuji_weights, k=1)[0]
-                send_message(room_id, f"おみくじの結果は **{result}** です。")
+                
+                # 返信機能を使ってメッセージを送信
+                reply_message = f"おみくじの結果は **{result}** です。"
+                send_message(room_id, reply_message, reply_to_id=account_id)
 
     except Exception as e:
         print(f"[{datetime.now().isoformat()}] An error occurred: {e}")
