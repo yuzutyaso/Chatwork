@@ -46,7 +46,7 @@ def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None)
         # ユーザー名を取得
         user_name = get_account_name(reply_to_id)
         # 返信タグとユーザー名タグを付与
-        payload["body"] = f"[rp aid={reply_to_id} to={room_id}-{reply_message_id}][piconname:{reply_to_id}]さん\n{message_body}"
+        payload["body"] = f"[rp aid={reply_to_id} to={room_id}-{reply_message_id}][pname:{reply_to_id}]さん\n{message_body}"
 
     try:
         requests.post(f"https://api.chatwork.com/v2/rooms/{room_id}/messages", headers=headers, data=payload)
