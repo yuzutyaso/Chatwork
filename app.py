@@ -15,10 +15,23 @@ MY_ACCOUNT_ID = os.environ.get("MY_ACCOUNT_ID")
 # Bot service is starting...
 print("Bot service is starting...")
 
-def send_message(room_id, message_body, reply_to_id=None):
+def get_account_name(account_id):
+    """
+    Chatwork APIを呼び出してアカウント名を取得する関数
+    ただし、今回は簡略化のためダミーの名前を返します
+    """
+    # 実際のAPI呼び出し
+    # headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
+    # response = requests.get(f"https://api.chatwork.com/v2/contacts", headers=headers)
+    # contacts = response.json()
+    # for contact in contacts:
+    #     if str(contact["account_id"]) == str(account_id):
+    #         return contact["name"]
+    return "ゆずbot" # 簡略化のためダミー名を返す
+
+def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None):
     """
     Chatworkにメッセージを送信する共通関数
-    返信したいメッセージのIDをreply_to_idとして渡す
     """
     headers = {
         "X-ChatWorkToken": CHATWORK_API_TOKEN,
@@ -28,12 +41,18 @@ def send_message(room_id, message_body, reply_to_id=None):
         "body": message_body
     }
     
-    # 返信IDが指定されていれば、ペイロードに追加
-    if reply_to_id:
-        payload["body"] = f"[rp aid={reply_to_id}] \n{message_body}"
+    # 返信IDとメッセージIDが指定されていれば、ペイロードに追加
+    if reply_to_id and reply_message_id:
+        # ユーザー名を取得
+        user_name = get_account_name(reply_to_id)
+        # 返信タグとユーザー名タグを付与
+        payload["body"] = f"[rp aid={reply_to_id} to={room_id}-{reply_message_id}][piconname:{reply_to_id}]さん\n{message_body}"
 
-    requests.post(f"https://api.chatwork.com/v2/rooms/{room_id}/messages", headers=headers, data=payload)
-    print("Response sent successfully.")
+    try:
+        requests.post(f"https://api.chatwork.com/v2/rooms/{room_id}/messages", headers=headers, data=payload)
+        print("Response sent successfully.")
+    except Exception as e:
+        print(f"Failed to send message: {e}")
 
 def clean_message_body(body):
     """
@@ -65,7 +84,7 @@ def chatwork_webhook():
         # タグを削除したクリーンなメッセージ本文を取得
         cleaned_body = clean_message_body(message_body)
         
-        print(f"Message received from Account ID: {account_id}, Room ID: {room_id}, Message ID: {message_id}")
+        print(f"Message received from Account ID: {account_id}, Room ID: {room_id}")
         print(f"Cleaned message body: '{cleaned_body}'")
         
         # 自分宛てではないことを確認
@@ -77,9 +96,9 @@ def chatwork_webhook():
                 current_time = now_jst.strftime("%Y/%m/%d %H:%M:%S")
                 
                 reply_message = f"現在の時刻は {current_time} です。"
-                send_message(room_id, reply_message, reply_to_id=account_id)
+                send_message(room_id, reply_message, reply_to_id=account_id, reply_message_id=message_id)
             
-            # "omikuji" が含まれていたらおみくじを引く
+            # "おみくじ" が含まれていたらおみくじを引く
             elif "おみくじ" in cleaned_body:
                 omikuji_results = ["大吉🎉", "吉😊", "中吉🙂", "小吉😅", "末吉🤔", "凶😭"]
                 omikuji_weights = [5, 4, 3, 2, 2, 1]
@@ -87,7 +106,7 @@ def chatwork_webhook():
                 result = random.choices(omikuji_results, weights=omikuji_weights, k=1)[0]
                 
                 reply_message = f"おみくじの結果は **{result}** です。"
-                send_message(room_id, reply_message, reply_to_id=account_id)
+                send_message(room_id, reply_message, reply_to_id=account_id, reply_message_id=message_id)
 
     except Exception as e:
         print(f"[{datetime.now().isoformat()}] An error occurred: {e}")
