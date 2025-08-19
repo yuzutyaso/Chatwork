@@ -62,7 +62,7 @@ def chatwork_webhook():
                 send_message(room_id, reply_message, reply_to_id=account_id)
             
             # "omikuji" が含まれていたらおみくじを引く
-            elif "omikuji" in message_body:
+            elif "おみくじ" in message_body:
                 omikuji_results = ["大吉🎉", "吉😊", "中吉🙂", "小吉😅", "末吉🤔", "凶😭"]
                 omikuji_weights = [5, 4, 3, 2, 2, 1]
                 
