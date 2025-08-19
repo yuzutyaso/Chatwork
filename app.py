@@ -122,7 +122,7 @@ def chatwork_webhook():
         if str(account_id) != MY_ACCOUNT_ID:
             # 絵文字の数が15個以上の場合、権限を変更する
             if emoji_count >= 15:
-                send_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}]\nメッセージに15個以上の絵文字が検出されたため、あなたの権限を『閲覧』に変更します。")
+                send_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}]\nメッセージに15個以上の絵文字が検出されました。権限を変更しようとしましたが、失敗しました。ボットに『グループチャットの管理者』権限があるか確認してください。")
                 
                 # ルームメンバーを取得
                 members = get_room_members(room_id)
@@ -141,10 +141,7 @@ def chatwork_webhook():
                             member_ids.append(member["account_id"])
                     
                     # 権限変更APIを呼び出す
-                    if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
-                        send_message(room_id, "権限を更新しました。")
-                    else:
-                        send_message(room_id, "権限の変更に失敗しました。ボットに管理者権限があるか確認してください。")
+                    change_room_permissions(room_id, admin_ids, member_ids, readonly_ids)
             
             # "test" が含まれていたら時刻を返す
             elif "test" in cleaned_body:
