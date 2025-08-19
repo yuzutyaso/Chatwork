@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 from flask import Flask, request
 import requests
 import random
+import re
 
 app = Flask(__name__)
 
@@ -34,6 +35,17 @@ def send_message(room_id, message_body, reply_to_id=None):
     requests.post(f"https://api.chatwork.com/v2/rooms/{room_id}/messages", headers=headers, data=payload)
     print("Response sent successfully.")
 
+def clean_message_body(body):
+    """
+    メッセージ本文から[rp aid=...]や[To:...]などのタグを削除する
+    """
+    # [rp aid=...]とそれに続く改行を削除
+    body = re.sub(r'\[rp aid=\d+ to=\d+-\d+\]\s*', '', body)
+    # [To:アカウントID]とそれに続く半角スペースを削除
+    body = re.sub(r'\[To:\d+\]\s*', '', body)
+    
+    # 前後の空白を削除
+    return body.strip()
 
 @app.route("/", methods=["POST"])
 def chatwork_webhook():
@@ -46,29 +58,30 @@ def chatwork_webhook():
         room_id = webhook_event.get("room_id")
         message_id = webhook_event.get("message_id")
         
+        # タグを削除したクリーンなメッセージ本文を取得
+        cleaned_body = clean_message_body(message_body)
+        
         print(f"Message received from Account ID: {account_id}, Room ID: {room_id}, Message ID: {message_id}")
-        print(f"Message body: '{message_body}'")
+        print(f"Cleaned message body: '{cleaned_body}'")
         
         # 自分宛てではないことを確認
         if str(account_id) != MY_ACCOUNT_ID:
             # "test" が含まれていたら時刻を返す
-            if "test" in message_body:
+            if "test" in cleaned_body:
                 jst = timezone(timedelta(hours=9), 'JST')
                 now_jst = datetime.now(jst)
                 current_time = now_jst.strftime("%Y/%m/%d %H:%M:%S")
                 
-                # 返信機能を使ってメッセージを送信
                 reply_message = f"現在の時刻は {current_time} です。"
                 send_message(room_id, reply_message, reply_to_id=account_id)
             
             # "omikuji" が含まれていたらおみくじを引く
-            elif "おみくじ" in message_body:
+            elif "omikuji" in cleaned_body:
                 omikuji_results = ["大吉🎉", "吉😊", "中吉🙂", "小吉😅", "末吉🤔", "凶😭"]
                 omikuji_weights = [5, 4, 3, 2, 2, 1]
                 
                 result = random.choices(omikuji_results, weights=omikuji_weights, k=1)[0]
                 
-                # 返信機能を使ってメッセージを送信
                 reply_message = f"おみくじの結果は **{result}** です。"
                 send_message(room_id, reply_message, reply_to_id=account_id)
 
