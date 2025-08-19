@@ -37,14 +37,18 @@ def send_message(room_id, message_body, reply_to_id=None):
 
 def clean_message_body(body):
     """
-    メッセージ本文から[rp aid=...]や[To:...]などのタグを削除する
+    メッセージ本文からすべてのタグとそれに続く名前、余計な空白を削除する
     """
-    # [rp aid=...]とそれに続く改行を削除
-    body = re.sub(r'\[rp aid=\d+ to=\d+-\d+\]\s*', '', body)
-    # [To:アカウントID]とそれに続く半角スペースを削除
-    body = re.sub(r'\[To:\d+\]\s*', '', body)
+    # 正規表現パターンを定義
+    # 返信タグ [rp aid=... to=...] を削除
+    body = re.sub(r'\[rp aid=\d+ to=\d+-\d+\]', '', body)
+    # Piconnameタグとそれに続く任意の文字（名前など）を削除
+    # 例: [piconname:1234567]さん
+    body = re.sub(r'\[piconname:\d+\].*?さん', '', body)
+    # [To:...]タグを削除
+    body = re.sub(r'\[To:\d+\]', '', body)
     
-    # 前後の空白を削除
+    # 前後の空白と改行をすべて削除して、純粋なメッセージ本文を抽出
     return body.strip()
 
 @app.route("/", methods=["POST"])
@@ -76,7 +80,7 @@ def chatwork_webhook():
                 send_message(room_id, reply_message, reply_to_id=account_id)
             
             # "omikuji" が含まれていたらおみくじを引く
-            elif "おみくじ" in cleaned_body:
+            elif "omikuji" in cleaned_body:
                 omikuji_results = ["大吉🎉", "吉😊", "中吉🙂", "小吉😅", "末吉🤔", "凶😭"]
                 omikuji_weights = [5, 4, 3, 2, 2, 1]
                 
