@@ -1,6 +1,6 @@
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from flask import Flask, request
 import requests
 
@@ -28,8 +28,10 @@ def chatwork_webhook():
         
         # メッセージが "test" で、自分宛てではないことを確認
         if "test" in message_body and str(account_id) != MY_ACCOUNT_ID:
-            now = datetime.now()
-            current_time = now.strftime("%Y/%m/%d %H:%M:%S")
+            # JST (UTC+9) のタイムゾーンを設定
+            jst = timezone(timedelta(hours=9), 'JST')
+            now_jst = datetime.now(jst)
+            current_time = now_jst.strftime("%Y/%m/%d %H:%M:%S")
             
             # 返信メッセージを送信
             headers = {
