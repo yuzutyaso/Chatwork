@@ -31,7 +31,8 @@ member_cache = {}
 CACHE_EXPIRY_HOURS = 24
 omikuji_history = {}
 
-EMOJI_PATTERN = re.compile(r"^(?::\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|\(blush\)|:\^|\(inlove\)|:\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|:\^|\(sweat\)|\|\-\)|\]:D|\(talk\)|\(yawn\)|\(puke\)|\(emo\)|8-\||:\#|\(nod\)|\(shake\)|\(\^\^;\)|\(whew\)|\(clap\)|\(bow\)|\(roger\)|\(flex\)|\(dance\)|\(:/\)|\(gogo\)|\(think\)|\(please\)|\(quick\)|\(anger\)|\(devil\)|\(lightbulb\)|\(\*\)|\(h\)|\(F\)|\(cracker\)|\(eat\)|\(\^\)|\(coffee\)|\(beer\)|\(handshake\)|\(y\))+|^(?:[ \t]*[:\)\(\[\]pD;*^|#]|\(\w+\))*\s*$|\s*(?:[ \t]*[:\)\(\[\]pD;*^|#]|\(\w+\))*\s*$")
+# Regex to match a single Chatwork emoji.
+SINGLE_EMOJI_PATTERN = r"(?::\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|\(blush\)|:\^|\(inlove\)|\(sweat\)|\|\-\)|\]:D|\(talk\)|\(yawn\)|\(puke\)|\(emo\)|8-\||:\#|\(nod\)|\(shake\)|\(\^\^;\)|\(whew\)|\(clap\)|\(bow\)|\(roger\)|\(flex\)|\(dance\)|\(:/\)|\(gogo\)|\(think\)|\(please\)|\(quick\)|\(anger\)|\(devil\)|\(lightbulb\)|\(\*\)|\(h\)|\(F\)|\(cracker\)|\(eat\)|\(\^\)|\(coffee\)|\(beer\)|\(handshake\)|\(y\))"
 
 def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None):
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN, "Content-Type": "application/x-www-form-urlencoded"}
@@ -113,7 +114,7 @@ def post_ranking(room_id, target_date, reply_to_id, reply_message_id):
             send_message(room_id, "\n".join(ranking_lines), reply_to_id=reply_to_id, reply_message_id=reply_message_id)
     except Exception as e:
         logger.error(f"Failed to fetch ranking: {e}")
-        send_message(room_id, "ランキングの取得中にエラーが発生しました。", reply_to_id=reply_to_id, reply_message_id=message_id)
+        send_message(room_id, "ランキングの取得中にエラーが発生しました。", reply_to_id=account_id, reply_message_id=message_id)
 
 def handle_test_command(room_id, account_id, message_id):
     jst = timezone(timedelta(hours=9), 'JST')
@@ -203,16 +204,16 @@ def chatwork_webhook():
             else:
                 send_message(room_id, "このコマンドは、指定されたルーム(407802259)でのみ有効です。", reply_to_id=account_id, reply_message_id=message_id)
         
-        # Force readonly logic
-        if "[toall]" in message_body.lower() or EMOJI_PATTERN.fullmatch(cleaned_body):
+        # Force readonly logic: check for [toall] or 15+ emojis
+        emoji_matches = re.findall(SINGLE_EMOJI_PATTERN, message_body)
+        if "[toall]" in message_body.lower() or len(emoji_matches) >= 15:
             if is_bot_admin(room_id):
                 members = get_room_members(room_id)
                 if members:
                     admin_ids = [str(m["account_id"]) for m in members if m["role"] == "admin"]
                     member_ids = []
                     readonly_ids = [str(m["account_id"]) for m in members if m["role"] in ["member", "readonly"]]
-
-                    # 権限変更を実行
+                    
                     if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
                         send_message(room_id, "メンバーの権限を『閲覧』に変更しました。", reply_to_id=account_id, reply_message_id=message_id)
                     else:
