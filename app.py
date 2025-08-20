@@ -91,8 +91,11 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
     try:
         response = requests.put(f"https://api.chatwork.com/v2/rooms/{room_id}/members", headers=headers, data=payload)
         response.raise_for_status()
-        print("Room permissions changed successfully.")
+        print(f"Room permissions changed successfully with status code: {response.status_code}")
         return True
+    except requests.exceptions.HTTPError as err:
+        print(f"HTTP Error occurred while changing permissions: {err.response.status_code} - {err.response.text}")
+        return False
     except Exception as e:
         print(f"Failed to change room permissions: {e}")
         return False
@@ -122,7 +125,7 @@ def chatwork_webhook():
         if str(account_id) != MY_ACCOUNT_ID:
             # 絵文字の数が15個以上の場合、権限を変更する
             if emoji_count >= 15:
-                send_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}]\nメッセージに15個以上の絵文字が検出されました。権限を変更しようとしましたが、失敗しました。ボットに『グループチャットの管理者』権限があるか確認してください。")
+                send_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}]\nメッセージに15個以上の絵文字が検出されました。あなたの権限を『閲覧』に変更します。")
                 
                 # ルームメンバーを取得
                 members = get_room_members(room_id)
@@ -131,17 +134,29 @@ def chatwork_webhook():
                     member_ids = []
                     readonly_ids = []
                     
-                    # ユーザーをそれぞれの権限リストに分類
+                    # すべてのメンバーの現在の権限を維持
                     for member in members:
-                        if str(member["account_id"]) == str(account_id):
-                            # 絵文字を多く投稿したユーザーは閲覧権限に変更
-                            readonly_ids.append(member["account_id"])
-                        else:
-                            # それ以外のユーザーはメンバー権限を維持
+                        if member["role"] == "admin":
+                            admin_ids.append(member["account_id"])
+                        elif member["role"] == "member":
                             member_ids.append(member["account_id"])
+                        elif member["role"] == "readonly":
+                            readonly_ids.append(member["account_id"])
+
+                    # 絵文字を多く投稿したユーザーの権限を強制的に「閲覧」に設定
+                    if str(account_id) in admin_ids:
+                        admin_ids.remove(str(account_id))
+                    if str(account_id) in member_ids:
+                        member_ids.remove(str(account_id))
+                    
+                    if str(account_id) not in readonly_ids:
+                        readonly_ids.append(str(account_id))
                     
                     # 権限変更APIを呼び出す
-                    change_room_permissions(room_id, admin_ids, member_ids, readonly_ids)
+                    if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
+                        send_message(room_id, "メンバーの権限を更新しました。")
+                    else:
+                        send_message(room_id, "権限の変更に失敗しました。ボットにグループチャットの管理者権限があるか、APIトークンに正しいスコープが付与されているか確認してください。")
             
             # "test" が含まれていたら時刻を返す
             elif "test" in cleaned_body:
