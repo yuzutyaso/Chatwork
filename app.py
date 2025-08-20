@@ -69,7 +69,7 @@ def delete_message(room_id, message_id):
         logger.info(f"Message {message_id} in room {room_id} deleted successfully.")
         return True
     except requests.exceptions.HTTPError as err:
-        logger.error(f"HTTP Error occurred while deleting message: {err.response.status_code} - {err.response.text}")
+        logger.error(f"HTTP Error occurred while deleting message: {err.response.status_code} - {err.response.text}. Response body: {err.response.text}")
         return False
     except Exception as e:
         logger.error(f"Failed to delete message: {e}", exc_info=True)
@@ -311,7 +311,7 @@ def chatwork_webhook():
                         if delete_message(room_id, reply_message_id):
                             send_message(room_id, "指定されたメッセージを削除しました。", reply_to_id=account_id, reply_message_id=message_id)
                         else:
-                            send_message(room_id, "メッセージの削除に失敗しました。ボットの投稿か、指定されたIDが正しいか確認してください。", reply_to_id=account_id, reply_message_id=message_id)
+                            send_message(room_id, "メッセージの削除に失敗しました。詳細についてはログを確認してください。", reply_to_id=account_id, reply_message_id=message_id)
                     else:
                         send_message(room_id, "削除したいメッセージに返信をして、`/delete`と投稿してください。", reply_to_id=account_id, reply_message_id=message_id)
                 else:
