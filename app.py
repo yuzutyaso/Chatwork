@@ -15,11 +15,11 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Chatwork APIトークンと自分のアカウントIDを環境変数から取得
+# --- Chatwork API Configuration ---
 CHATWORK_API_TOKEN = os.environ.get("CHATWORK_API_TOKEN")
 MY_ACCOUNT_ID = os.environ.get("MY_ACCOUNT_ID")
 
-# Supabaseの設定
+# --- Supabase Configuration ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
@@ -34,8 +34,12 @@ else:
     logger.warning("SUPABASE_URL or SUPABASE_KEY is not set. Database functionality will be disabled.")
     supabase = None
 
+# --- ルームメンバー情報をキャッシュしてレート制限を回避 ---
+member_cache = {}
+# キャッシュの有効期限（24時間）
+CACHE_EXPIRY_HOURS = 24
+
 # ユーザーのおみくじ利用履歴を記録する辞書
-# キー: ユーザーID (account_id), 値: 最終利用日時 (datetimeオブジェクト)
 omikuji_history = {}
 
 # Chatwork専用の絵文字パターン
@@ -73,25 +77,6 @@ def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None)
         logger.error(f"Failed to send message: {e}", exc_info=True)
         return False
 
-def mark_as_read(room_id):
-    """
-    指定されたルームのメッセージをすべて既読にする
-    """
-    headers = {
-        "X-ChatWorkToken": CHATWORK_API_TOKEN
-    }
-    try:
-        response = requests.put(f"https://api.chatwork.com/v2/rooms/{room_id}/messages/read", headers=headers)
-        response.raise_for_status()
-        logger.info(f"Messages in room {room_id} marked as read successfully.")
-        return True
-    except requests.exceptions.HTTPError as err:
-        logger.error(f"HTTP Error occurred while marking messages as read: {err.response.status_code} - {err.response.text}")
-        return False
-    except Exception as e:
-        logger.error(f"Failed to mark messages as read: {e}", exc_info=True)
-        return False
-
 def get_rooms():
     """
     ボットが参加しているすべての部屋のリストを取得する
@@ -111,17 +96,6 @@ def get_rooms():
         logger.error(f"Failed to get room list: {e}", exc_info=True)
         return None
 
-def mark_all_rooms_as_read():
-    """
-    ボットが参加しているすべての部屋の未読数を0にする
-    """
-    rooms = get_rooms()
-    if rooms:
-        for room in rooms:
-            room_id = room.get("room_id")
-            if room_id:
-                mark_as_read(room_id)
-
 def get_room_info(room_id):
     """
     指定されたルームの情報を取得する
@@ -138,6 +112,38 @@ def get_room_info(room_id):
         return None
     except Exception as e:
         logger.error(f"Failed to get room info: {e}", exc_info=True)
+        return None
+
+def get_room_members(room_id):
+    """
+    指定されたルームのメンバーリストを取得する関数（キャッシュ付き）
+    """
+    # キャッシュをチェック
+    now = datetime.now(timezone.utc)
+    if room_id in member_cache and (now - member_cache[room_id]['timestamp']) < timedelta(hours=CACHE_EXPIRY_HOURS):
+        logger.info(f"Using cached members for room {room_id}")
+        return member_cache[room_id]['data']
+    
+    headers = {
+        "X-ChatWorkToken": CHATWORK_API_TOKEN
+    }
+    try:
+        response = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}/members", headers=headers)
+        response.raise_for_status()
+        members = response.json()
+        logger.info(f"Successfully fetched room members for room {room_id}")
+        
+        # 取得したメンバーリストをキャッシュ
+        member_cache[room_id] = {
+            'timestamp': now,
+            'data': members
+        }
+        return members
+    except requests.exceptions.HTTPError as err:
+        logger.error(f"HTTP Error occurred while fetching room members: {err.response.status_code} - {err.response.text}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to get room members: {e}", exc_info=True)
         return None
 
 def get_room_members_count(room_id):
@@ -166,25 +172,6 @@ def clean_message_body(body):
     body = re.sub(r'\[piconname:\d+\].*?さん', '', body)
     body = re.sub(r'\[To:\d+\]', '', body)
     return body.strip()
-
-def get_room_members(room_id):
-    """
-    指定されたルームのメンバーリストを取得する関数
-    """
-    headers = {
-        "X-ChatWorkToken": CHATWORK_API_TOKEN
-    }
-    try:
-        response = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}/members", headers=headers)
-        response.raise_for_status()
-        logger.info(f"Successfully fetched room members for room {room_id}")
-        return response.json()
-    except requests.exceptions.HTTPError as err:
-        logger.error(f"HTTP Error occurred while fetching room members: {err.response.status_code} - {err.response.text}")
-        return None
-    except Exception as e:
-        logger.error(f"Failed to get room members: {e}", exc_info=True)
-        return None
 
 def get_permission_list(room_id, permission_type):
     """
@@ -290,8 +277,6 @@ def post_ranking(room_id, target_date, reply_to_id, reply_message_id):
 def chatwork_webhook():
     logger.info(f"Received a new webhook request. Headers: {request.headers}")
     
-    mark_all_rooms_as_read()
-
     try:
         data = request.json
         logger.info(f"Received JSON data: {json.dumps(data, indent=2)}")
@@ -317,9 +302,10 @@ def chatwork_webhook():
                 today_date_str = datetime.now(jst).strftime("%Y/%#m/%#d")
                 
                 members = get_room_members(room_id)
-                account_name = next((m["name"] for m in members if str(m["account_id"]) == str(account_id)), "Unknown User")
-                
-                update_message_count_in_db(today_date_str, account_id, account_name)
+                # エラーハンドリングを追加
+                if members:
+                    account_name = next((m["name"] for m in members if str(m["account_id"]) == str(account_id)), "Unknown User")
+                    update_message_count_in_db(today_date_str, account_id, account_name)
 
             # Ranking command processing
             ranking_match = re.match(r'^/ranking\s+(\d{4}/\d{1,2}/\d{1,2})$', cleaned_body)
@@ -380,18 +366,19 @@ def chatwork_webhook():
             elif cleaned_body == "/member":
                 logger.info("Member command received.")
                 members = get_room_members(room_id)
-                user_role = next((m["role"] for m in members if str(m["account_id"]) == str(account_id)), None)
+                if members:
+                    user_role = next((m["role"] for m in members if str(m["account_id"]) == str(account_id)), None)
 
-                if user_role == "admin":
-                    member_members = get_permission_list(room_id, "member")
-                    if member_members:
-                        names = [member["name"] for member in member_members]
-                        message = "【メンバー権限ユーザー】\n" + "\n".join(names)
-                        send_message(room_id, message, reply_to_id=account_id, reply_message_id=message_id)
+                    if user_role == "admin":
+                        member_members = get_permission_list(room_id, "member")
+                        if member_members:
+                            names = [member["name"] for member in member_members]
+                            message = "【メンバー権限ユーザー】\n" + "\n".join(names)
+                            send_message(room_id, message, reply_to_id=account_id, reply_message_id=message_id)
+                        else:
+                            send_message(room_id, "現在、メンバー権限のユーザーはいません。", reply_to_id=account_id, reply_message_id=message_id)
                     else:
-                        send_message(room_id, "現在、メンバー権限のユーザーはいません。", reply_to_id=account_id, reply_message_id=message_id)
-                else:
-                    send_message(room_id, "このコマンドは管理者のみ実行可能です。", reply_to_id=account_id, reply_message_id=message_id)
+                        send_message(room_id, "このコマンドは管理者のみ実行可能です。", reply_to_id=account_id, reply_message_id=message_id)
             
             elif "おみくじ" in cleaned_body:
                 logger.info("Omikuji message received. Drawing a fortune.")
