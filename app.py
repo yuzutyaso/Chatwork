@@ -401,20 +401,26 @@ def chatwork_webhook():
                 current_time = now_jst.strftime("%Y/%m/%d %H:%M:%S")
                 reply_message = f"現在の時刻は {current_time} です。"
                 send_message(room_id, reply_message, reply_to_id=account_id, reply_message_id=message_id)
-
+            
             # [toall] コマンドの処理を修正
             elif "[toall]" in message_body.lower():
                 logger.info("[toall] message received. Changing permissions to readonly for other members.")
-                members = get_room_members(room_id) # 最新のメンバー情報を取得
+                members = get_room_members(room_id)  # 最新のメンバー情報を取得
                 if members:
                     admin_ids = []
                     member_ids = []
                     readonly_ids = []
                     
+                    # 実行者が元々管理者だったかを確認
+                    is_requester_admin = any(m["role"] == "admin" and str(m["account_id"]) == str(account_id) for m in members)
+
                     for member in members:
                         if str(member["account_id"]) == str(account_id):
-                            # コマンド実行者はメンバー権限に設定
-                            member_ids.append(member["account_id"])
+                            # コマンド実行者は、元々管理者だった場合はadmin、そうでなければmemberに設定
+                            if is_requester_admin:
+                                admin_ids.append(member["account_id"])
+                            else:
+                                member_ids.append(member["account_id"])
                         else:
                             # 実行者以外の全員を閲覧者権限に設定
                             readonly_ids.append(member["account_id"])
