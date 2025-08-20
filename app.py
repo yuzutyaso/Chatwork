@@ -56,25 +56,6 @@ def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None)
         logger.error(f"Failed to send message: {e}", exc_info=True)
         return False
 
-def delete_message(room_id, message_id):
-    """
-    指定されたルームの指定されたメッセージを削除する関数
-    """
-    headers = {
-        "X-ChatWorkToken": CHATWORK_API_TOKEN
-    }
-    try:
-        response = requests.delete(f"https://api.chatwork.com/v2/rooms/{room_id}/messages/{message_id}", headers=headers)
-        response.raise_for_status()
-        logger.info(f"Message {message_id} in room {room_id} deleted successfully.")
-        return True
-    except requests.exceptions.HTTPError as err:
-        logger.error(f"HTTP Error occurred while deleting message: {err.response.status_code} - {err.response.text}. Response body: {err.response.text}")
-        return False
-    except Exception as e:
-        logger.error(f"Failed to delete message: {e}", exc_info=True)
-        return False
-
 def mark_as_read(room_id):
     """
     指定されたルームのメッセージをすべて既読にする
@@ -292,28 +273,6 @@ def chatwork_webhook():
                         send_message(room_id, message, reply_to_id=account_id, reply_message_id=message_id)
                     else:
                         send_message(room_id, "現在、メンバー権限のユーザーはいません。", reply_to_id=account_id, reply_message_id=message_id)
-                else:
-                    send_message(room_id, "このコマンドは管理者のみ実行可能です。", reply_to_id=account_id, reply_message_id=message_id)
-            
-            elif cleaned_body.startswith("/delete"):
-                logger.info("Delete command received.")
-                
-                # ユーザーの権限をチェック
-                members = get_room_members(room_id)
-                user_role = next((m["role"] for m in members if str(m["account_id"]) == str(account_id)), None)
-
-                if user_role == "admin":
-                    # ウェブフックのペイロードから返信されたメッセージIDを直接取得
-                    reply_message_id = webhook_event.get("reply_to_message_id")
-                    
-                    if reply_message_id:
-                        logger.info(f"Attempting to delete message with ID: {reply_message_id}")
-                        if delete_message(room_id, reply_message_id):
-                            send_message(room_id, "指定されたメッセージを削除しました。", reply_to_id=account_id, reply_message_id=message_id)
-                        else:
-                            send_message(room_id, "メッセージの削除に失敗しました。詳細についてはログを確認してください。", reply_to_id=account_id, reply_message_id=message_id)
-                    else:
-                        send_message(room_id, "削除したいメッセージに返信をして、`/delete`と投稿してください。", reply_to_id=account_id, reply_message_id=message_id)
                 else:
                     send_message(room_id, "このコマンドは管理者のみ実行可能です。", reply_to_id=account_id, reply_message_id=message_id)
 
