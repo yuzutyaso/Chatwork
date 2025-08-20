@@ -35,6 +35,7 @@ omikuji_history = {}
 SINGLE_EMOJI_PATTERN = r"(?::\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|\(blush\)|:\^|\(inlove\)|\(sweat\)|\|\-\)|\]:D|\(talk\)|\(yawn\)|\(puke\)|\(emo\)|8-\||:\#|\(nod\)|\(shake\)|\(\^\^;\)|\(whew\)|\(clap\)|\(bow\)|\(roger\)|\(flex\)|\(dance\)|\(:/\)|\(gogo\)|\(think\)|\(please\)|\(quick\)|\(anger\)|\(devil\)|\(lightbulb\)|\(\*\)|\(h\)|\(F\)|\(cracker\)|\(eat\)|\(\^\)|\(coffee\)|\(beer\)|\(handshake\)|\(y\))"
 
 def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None):
+    """Sends a message to a Chatwork room."""
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN, "Content-Type": "application/x-www-form-urlencoded"}
     payload = {"body": message_body}
     
@@ -49,6 +50,7 @@ def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None)
         return False
 
 def get_room_members(room_id):
+    """Fetches room members from Chatwork API with caching."""
     now = datetime.now(timezone.utc)
     if room_id in member_cache and (now - member_cache[room_id]['timestamp']) < timedelta(hours=CACHE_EXPIRY_HOURS):
         return member_cache[room_id]['data']
@@ -65,16 +67,19 @@ def get_room_members(room_id):
         return None
 
 def is_bot_admin(room_id):
+    """Checks if the bot has admin privileges in the specified room."""
     members = get_room_members(room_id)
     if members:
         return any(str(member["account_id"]) == str(MY_ACCOUNT_ID) and member["role"] == "admin" for member in members)
     return False
 
 def clean_message_body(body):
+    """Removes Chatwork-specific tags from the message body."""
     body = re.sub(r'\[rp aid=\d+ to=\d+-\d+\]|\[piconname:\d+\].*?さん|\[To:\d+\]', '', body)
     return body.strip()
 
 def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
+    """Changes room member permissions via the Chatwork API."""
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN, "Content-Type": "application/x-www-form-urlencoded"}
     payload = {
         "members_admin_ids": ",".join(map(str, admin_ids)),
@@ -89,6 +94,7 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         return False
 
 def update_message_count_in_db(date, account_id, account_name):
+    """Updates message count in the Supabase database."""
     if not supabase: return
     try:
         response = supabase.table('message_counts').select("*").eq("date", date).eq("account_id", account_id).execute()
@@ -101,6 +107,7 @@ def update_message_count_in_db(date, account_id, account_name):
         logger.error(f"Failed to update message count: {e}")
 
 def post_ranking(room_id, target_date, reply_to_id, reply_message_id):
+    """Fetches and posts message count ranking."""
     if not supabase:
         send_message(room_id, "データベースが利用できません。", reply_to_id=reply_to_id, reply_message_id=reply_message_id)
         return
@@ -117,11 +124,13 @@ def post_ranking(room_id, target_date, reply_to_id, reply_message_id):
         send_message(room_id, "ランキングの取得中にエラーが発生しました。", reply_to_id=account_id, reply_message_id=message_id)
 
 def handle_test_command(room_id, account_id, message_id):
+    """Handles the /test command."""
     jst = timezone(timedelta(hours=9), 'JST')
     current_time = datetime.now(jst).strftime("%Y/%m/%d %H:%M:%S")
     send_message(room_id, f"現在の時刻は {current_time} です。", reply_to_id=account_id, reply_message_id=message_id)
 
 def handle_omikuji_command(room_id, account_id, message_id):
+    """Handles the おみくじ command."""
     now = datetime.now()
     last_used = omikuji_history.get(account_id)
     if last_used and (now - last_used) < timedelta(hours=24):
@@ -134,6 +143,7 @@ def handle_omikuji_command(room_id, account_id, message_id):
         send_message(room_id, f"おみくじの結果は **{result}** です。", reply_to_id=account_id, reply_message_id=message_id)
 
 def handle_room_info_command(room_id, account_id, message_id, parts):
+    """Handles the /roominfo command."""
     if len(parts) < 2:
         send_message(room_id, "使用方法: `/roominfo [ルームID]`", reply_to_id=account_id, reply_message_id=message_id)
         return
@@ -152,6 +162,7 @@ def handle_room_info_command(room_id, account_id, message_id, parts):
         send_message(room_id, "ルーム情報が見つかりません。", reply_to_id=account_id, reply_message_id=message_id)
 
 def handle_permission_list(room_id, account_id, message_id, role_type):
+    """Handles permission list commands like /blacklist, /admin, /member."""
     members = get_room_members(room_id)
     if not members:
         send_message(room_id, "メンバー情報が取得できません。", reply_to_id=account_id, reply_message_id=message_id)
@@ -167,6 +178,7 @@ def handle_permission_list(room_id, account_id, message_id, role_type):
 
 @app.route("/", methods=["POST"])
 def chatwork_webhook():
+    """Main webhook handler for Chatwork."""
     try:
         data = request.json
         webhook_event = data.get("webhook_event")
