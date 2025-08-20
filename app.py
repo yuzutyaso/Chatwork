@@ -112,25 +112,6 @@ def get_room_info(room_id):
         logger.error(f"Failed to get room info: {e}", exc_info=True)
         return None
 
-def get_room_messages_count(room_id):
-    """
-    指定されたルームのメッセージ数を取得する (注意: このAPIは最新100件までしか取得できないため、正確な総数は取得できません)
-    """
-    headers = {
-        "X-ChatWorkToken": CHATWORK_API_TOKEN
-    }
-    try:
-        response = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}/messages", headers=headers)
-        response.raise_for_status()
-        messages = response.json()
-        return len(messages)
-    except requests.exceptions.HTTPError as err:
-        logger.error(f"HTTP Error occurred while fetching messages: {err.response.status_code} - {err.response.text}")
-        return None
-    except Exception as e:
-        logger.error(f"Failed to get messages count: {e}", exc_info=True)
-        return None
-
 def get_room_members_count(room_id):
     """
     指定されたルームのメンバー数を取得する
@@ -260,14 +241,14 @@ def chatwork_webhook():
                 room_info = get_room_info(target_room_id)
                 if room_info:
                     room_name = room_info.get("name", "不明な部屋名")
-                    messages_count = get_room_messages_count(target_room_id)
+                    messages_count = room_info.get("message_num", 0) # message_numを直接利用
                     members_count = get_room_members_count(target_room_id)
                     admins_count = get_admin_count(target_room_id)
 
                     info_message = (
                         f"【部屋情報】\n"
                         f"部屋名: {room_name}\n"
-                        f"メッセージ数: {messages_count}件 (※最新100件まで)\n"
+                        f"メッセージ数: {messages_count}件\n" # 注釈を削除
                         f"メンバー数: {members_count}人\n"
                         f"管理者数: {admins_count}人"
                     )
