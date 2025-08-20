@@ -275,7 +275,7 @@ def chatwork_webhook():
                         send_message(room_id, "現在、メンバー権限のユーザーはいません。", reply_to_id=account_id, reply_message_id=message_id)
                 else:
                     send_message(room_id, "このコマンドは管理者のみ実行可能です。", reply_to_id=account_id, reply_message_id=message_id)
-
+            
             # おみくじ機能
             elif "おみくじ" in cleaned_body:
                 logger.info("Omikuji message received. Drawing a fortune.")
