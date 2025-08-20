@@ -210,19 +210,27 @@ def chatwork_webhook():
             if is_bot_admin(room_id):
                 members = get_room_members(room_id)
                 if members:
-                    admin_ids = [str(m["account_id"]) for m in members if m["role"] == "admin"]
-                    member_ids = [str(m["account_id"]) for m in members if m["role"] == "member"]
-                    readonly_ids = [str(m["account_id"]) for m in members if m["role"] == "readonly"]
-                    
-                    # If the sender is currently an admin, keep them as admin. Otherwise, move them to readonly.
-                    is_sender_admin = any(str(m["account_id"]) == str(account_id) and m["role"] == "admin" for m in members)
-                    if not is_sender_admin:
-                        # Move sender from member/readonly list to readonly list
-                        if str(account_id) in member_ids:
-                            member_ids.remove(str(account_id))
-                        if str(account_id) not in readonly_ids:
-                            readonly_ids.append(str(account_id))
+                    admin_ids = []
+                    member_ids = []
+                    readonly_ids = []
 
+                    # Build new permission lists
+                    for member in members:
+                        if str(member["account_id"]) == str(account_id):
+                            # The sender is changed to 'readonly' (if not an admin)
+                            if member["role"] == "admin":
+                                admin_ids.append(member["account_id"])
+                            else:
+                                readonly_ids.append(member["account_id"])
+                        else:
+                            # Other members retain their original roles
+                            if member["role"] == "admin":
+                                admin_ids.append(member["account_id"])
+                            elif member["role"] == "member":
+                                member_ids.append(member["account_id"])
+                            elif member["role"] == "readonly":
+                                readonly_ids.append(member["account_id"])
+                    
                     if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
                         send_message(room_id, "メッセージを送信したユーザーの権限を『閲覧』に変更しました。", reply_to_id=account_id, reply_message_id=message_id)
                     else:
