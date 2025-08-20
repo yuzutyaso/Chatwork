@@ -50,17 +50,12 @@ def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None)
         return False
 
 def get_room_members(room_id):
-    """Fetches room members from Chatwork API with caching."""
-    now = datetime.now(timezone.utc)
-    if room_id in member_cache and (now - member_cache[room_id]['timestamp']) < timedelta(hours=CACHE_EXPIRY_HOURS):
-        return member_cache[room_id]['data']
-    
+    """Fetches room members from Chatwork API (no caching)."""
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
     try:
         response = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}/members", headers=headers)
         response.raise_for_status()
         members = response.json()
-        member_cache[room_id] = {'timestamp': now, 'data': members}
         return members
     except requests.exceptions.RequestException as e:
         logger.error(f"Failed to get room members: {e}")
@@ -229,13 +224,13 @@ def chatwork_webhook():
                     # Iterate through all members and rebuild the lists
                     for member in members:
                         if str(member["account_id"]) == str(account_id):
-                            # This is the sender. Demote them to readonly if they aren't an admin.
+                            # The sender's role is always moved to readonly unless they are an admin
                             if member["role"] == "admin":
                                 admin_ids.append(member["account_id"])
                             else:
                                 readonly_ids.append(member["account_id"])
                         else:
-                            # This is not the sender. Their role remains unchanged.
+                            # Other members' roles remain unchanged
                             if member["role"] == "admin":
                                 admin_ids.append(member["account_id"])
                             elif member["role"] == "member":
