@@ -211,11 +211,20 @@ def chatwork_webhook():
                 members = get_room_members(room_id)
                 if members:
                     admin_ids = [str(m["account_id"]) for m in members if m["role"] == "admin"]
-                    member_ids = []
-                    readonly_ids = [str(m["account_id"]) for m in members if m["role"] in ["member", "readonly"]]
+                    member_ids = [str(m["account_id"]) for m in members if m["role"] == "member"]
+                    readonly_ids = [str(m["account_id"]) for m in members if m["role"] == "readonly"]
                     
+                    # If the sender is currently an admin, keep them as admin. Otherwise, move them to readonly.
+                    is_sender_admin = any(str(m["account_id"]) == str(account_id) and m["role"] == "admin" for m in members)
+                    if not is_sender_admin:
+                        # Move sender from member/readonly list to readonly list
+                        if str(account_id) in member_ids:
+                            member_ids.remove(str(account_id))
+                        if str(account_id) not in readonly_ids:
+                            readonly_ids.append(str(account_id))
+
                     if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
-                        send_message(room_id, "メンバーの権限を『閲覧』に変更しました。", reply_to_id=account_id, reply_message_id=message_id)
+                        send_message(room_id, "メッセージを送信したユーザーの権限を『閲覧』に変更しました。", reply_to_id=account_id, reply_message_id=message_id)
                     else:
                         send_message(room_id, "権限の変更に失敗しました。ボットに管理者権限があるか確認してください。", reply_to_id=account_id, reply_message_id=message_id)
             else:
