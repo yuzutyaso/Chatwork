@@ -26,6 +26,9 @@ EMOJI_PATTERN = re.compile(
     r":\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|\(blush\)|:\^|\(inlove\)|:\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|:\^|\(sweat\)|\|\-\)|\]:D|\(talk\)|\(yawn\)|\(puke\)|\(emo\)|8-\||:\#|\(nod\)|\(shake\)|\(\^\^;\)|\(whew\)|\(clap\)|\(bow\)|\(roger\)|\(flex\)|\(dance\)|\(:/\)|\(gogo\)|\(think\)|\(please\)|\(quick\)|\(anger\)|\(devil\)|\(lightbulb\)|\(\*\)|\(h\)|\(F\)|\(cracker\)|\(eat\)|\(\^\)|\(coffee\)|\(beer\)|\(handshake\)|\(y\)"
 )
 
+# Chatworkの招待URLの正規表現
+INVITE_URL_PATTERN = re.compile(r"https:\/\/www\.chatwork\.com\/g\/(?P<token>[a-zA-Z0-9]+)")
+
 # Bot service is starting...
 logger.info("Bot service is starting...")
 
@@ -181,6 +184,31 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         logger.error(f"Failed to change room permissions: {e}", exc_info=True)
         return False
 
+def accept_group_chat_invitation(invite_token):
+    """
+    指定された招待トークンを使ってグループチャットに参加する
+    """
+    url = f"https://api.chatwork.com/v2/rooms"
+    headers = {
+        "X-ChatWorkToken": CHATWORK_API_TOKEN,
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    payload = {
+        "invite_token": invite_token
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, data=payload)
+        response.raise_for_status()
+        logger.info(f"Successfully joined new room with token {invite_token}. Response: {response.text}")
+        return True
+    except requests.exceptions.HTTPError as err:
+        logger.error(f"HTTP Error occurred while accepting invitation: {err.response.status_code} - {err.response.text}")
+        return False
+    except Exception as e:
+        logger.error(f"Failed to accept invitation: {e}", exc_info=True)
+        return False
+
 @app.route("/", methods=["POST"])
 def chatwork_webhook():
     logger.info(f"Received a new webhook request. Headers: {request.headers}")
@@ -198,6 +226,11 @@ def chatwork_webhook():
         room_id = webhook_event.get("room_id")
         message_id = webhook_event.get("message_id")
         
+        # Room ID 365406836ではbotが反応しないようにする
+        if str(room_id) == "365406836":
+            logger.info("Ignoring webhook event for room ID 365406836 as per user request.")
+            return "", 200
+            
         cleaned_body = clean_message_body(message_body)
         
         logger.info(f"Message details: Account ID: {account_id}, Room ID: {room_id}, Cleaned body: '{cleaned_body}'")
