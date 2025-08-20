@@ -184,31 +184,6 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         logger.error(f"Failed to change room permissions: {e}", exc_info=True)
         return False
 
-def accept_group_chat_invitation(invite_token):
-    """
-    指定された招待トークンを使ってグループチャットに参加する
-    """
-    url = f"https://api.chatwork.com/v2/rooms"
-    headers = {
-        "X-ChatWorkToken": CHATWORK_API_TOKEN,
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-    payload = {
-        "invite_token": invite_token
-    }
-    
-    try:
-        response = requests.post(url, headers=headers, data=payload)
-        response.raise_for_status()
-        logger.info(f"Successfully joined new room with token {invite_token}. Response: {response.text}")
-        return True
-    except requests.exceptions.HTTPError as err:
-        logger.error(f"HTTP Error occurred while accepting invitation: {err.response.status_code} - {err.response.text}")
-        return False
-    except Exception as e:
-        logger.error(f"Failed to accept invitation: {e}", exc_info=True)
-        return False
-
 @app.route("/", methods=["POST"])
 def chatwork_webhook():
     logger.info(f"Received a new webhook request. Headers: {request.headers}")
@@ -226,18 +201,19 @@ def chatwork_webhook():
         room_id = webhook_event.get("room_id")
         message_id = webhook_event.get("message_id")
         
-        # Room ID 365406836ではbotが反応しないようにする
+        # /roominfo 以外のメッセージは常に既読にする
+        # 特定の部屋でも既読化は行う
+        if not message_body.startswith("/roominfo"):
+            mark_as_read(room_id)
+        
+        # Room ID 365406836ではbotが応答しないようにする
         if str(room_id) == "365406836":
-            logger.info("Ignoring webhook event for room ID 365406836 as per user request.")
+            logger.info("Ignoring bot response for room ID 365406836 as per user request.")
             return "", 200
-            
+        
         cleaned_body = clean_message_body(message_body)
         
         logger.info(f"Message details: Account ID: {account_id}, Room ID: {room_id}, Cleaned body: '{cleaned_body}'")
-        
-        # /roominfo 以外のメッセージは常に既読にする
-        if not cleaned_body.startswith("/roominfo"):
-            mark_as_read(room_id)
 
         if str(account_id) != MY_ACCOUNT_ID:
             
