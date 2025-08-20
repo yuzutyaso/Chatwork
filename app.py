@@ -111,7 +111,7 @@ def post_ranking(room_id, target_date, reply_to_id, reply_message_id):
             send_message(room_id, f"{target_date} のデータが見つかりませんでした。", reply_to_id=reply_to_id, reply_message_id=reply_message_id)
         else:
             ranking_lines = [f"{target_date} の個人メッセージ数ランキング！"] + [f"{i}位　{item.get('name', 'Unknown')}さん ({item.get('message_count', 0)}件)" for i, item in enumerate(ranking, 1)] + ["以上です"]
-            send_message(room_id, "\n".join(ranking_lines), reply_to_id=reply_to_id, reply_message_id=reply_message_id)
+            send_message(room_id, "\n".join(ranking_lines), reply_to_id=reply_to_id, reply_message_id=message_id)
     except Exception as e:
         logger.error(f"Failed to fetch ranking: {e}")
         send_message(room_id, "ランキングの取得中にエラーが発生しました。", reply_to_id=account_id, reply_message_id=message_id)
