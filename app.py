@@ -303,12 +303,12 @@ def chatwork_webhook():
                 user_role = next((m["role"] for m in members if str(m["account_id"]) == str(account_id)), None)
 
                 if user_role == "admin":
-                    # メッセージIDを抽出する正規表現
-                    match = re.search(r'\[rp aid=\d+ to=\d+-(\d+)\].*$', message_body)
-                    if match:
-                        message_to_delete_id = match.group(1)
-                        logger.info(f"Attempting to delete message with ID: {message_to_delete_id}")
-                        if delete_message(room_id, message_to_delete_id):
+                    # ウェブフックのペイロードから返信されたメッセージIDを直接取得
+                    reply_message_id = webhook_event.get("reply_to_message_id")
+                    
+                    if reply_message_id:
+                        logger.info(f"Attempting to delete message with ID: {reply_message_id}")
+                        if delete_message(room_id, reply_message_id):
                             send_message(room_id, "指定されたメッセージを削除しました。", reply_to_id=account_id, reply_message_id=message_id)
                         else:
                             send_message(room_id, "メッセージの削除に失敗しました。ボットの投稿か、指定されたIDが正しいか確認してください。", reply_to_id=account_id, reply_message_id=message_id)
