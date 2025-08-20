@@ -9,7 +9,7 @@ from flask import Flask, request
 from collections import Counter
 from supabase import create_client, Client
 
-# ロガー設定
+# Logger settings
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -34,17 +34,18 @@ else:
     logger.warning("SUPABASE_URL or SUPABASE_KEY is not set. Database functionality will be disabled.")
     supabase = None
 
-# --- ルームメンバー情報をキャッシュしてレート制限を回避 ---
+# --- Cache room member info to avoid rate limits ---
 member_cache = {}
-# キャッシュの有効期限（24時間）
+# Cache expiration time (24 hours)
 CACHE_EXPIRY_HOURS = 24
 
-# ユーザーのおみくじ利用履歴を記録する辞書
+# Dictionary to record user's omikuji history
 omikuji_history = {}
 
-# Chatwork専用の絵文字パターン
+# Chatwork-specific emoji pattern. Matches the entire string to ensure it's *only* emojis.
+# This pattern is specifically for the Chatwork-style emojis like :), :D, (clap), etc.
 EMOJI_PATTERN = re.compile(
-    r":\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|\(blush\)|:\^|\(inlove\)|:\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|:\^|\(sweat\)|\|\-\)|\]:D|\(talk\)|\(yawn\)|\(puke\)|\(emo\)|8-\||:\#|\(nod\)|\(shake\)|\(\^\^;\)|\(whew\)|\(clap\)|\(bow\)|\(roger\)|\(flex\)|\(dance\)|\(:/\)|\(gogo\)|\(think\)|\(please\)|\(quick\)|\(anger\)|\(devil\)|\(lightbulb\)|\(\*\)|\(h\)|\(F\)|\(cracker\)|\(eat\)|\(\^\)|\(coffee\)|\(beer\)|\(handshake\)|\(y\)"
+    r"^(?::\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|\(blush\)|:\^|\(inlove\)|:\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|:\^|\(sweat\)|\|\-\)|\]:D|\(talk\)|\(yawn\)|\(puke\)|\(emo\)|8-\||:\#|\(nod\)|\(shake\)|\(\^\^;\)|\(whew\)|\(clap\)|\(bow\)|\(roger\)|\(flex\)|\(dance\)|\(:/\)|\(gogo\)|\(think\)|\(please\)|\(quick\)|\(anger\)|\(devil\)|\(lightbulb\)|\(\*\)|\(h\)|\(F\)|\(cracker\)|\(eat\)|\(\^\)|\(coffee\)|\(beer\)|\(handshake\)|\(y\))+|^(?:[ \t]*[:\)\(\[\]pD;*^|#]|\(\w+\))*\s*$|\s*(?:[ \t]*[:\)\(\[\]pD;*^|#]|\(\w+\))*\s*$"
 )
 
 # Bot service is starting...
@@ -52,7 +53,7 @@ logger.info("Bot service is starting...")
 
 def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None):
     """
-    Chatworkにメッセージを送信する共通関数
+    Common function to send a message to Chatwork
     """
     headers = {
         "X-ChatWorkToken": CHATWORK_API_TOKEN,
@@ -79,7 +80,7 @@ def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None)
 
 def get_rooms():
     """
-    ボットが参加しているすべての部屋のリストを取得する
+    Gets a list of all rooms the bot is a member of
     """
     headers = {
         "X-ChatWorkToken": CHATWORK_API_TOKEN
@@ -98,7 +99,7 @@ def get_rooms():
 
 def get_room_info(room_id):
     """
-    指定されたルームの情報を取得する
+    Gets information about a specific room
     """
     headers = {
         "X-ChatWorkToken": CHATWORK_API_TOKEN
@@ -116,9 +117,9 @@ def get_room_info(room_id):
 
 def get_room_members(room_id):
     """
-    指定されたルームのメンバーリストを取得する関数（キャッシュ付き）
+    Gets the list of members for a specific room (with cache)
     """
-    # キャッシュをチェック
+    # Check cache
     now = datetime.now(timezone.utc)
     if room_id in member_cache and (now - member_cache[room_id]['timestamp']) < timedelta(hours=CACHE_EXPIRY_HOURS):
         logger.info(f"Using cached members for room {room_id}")
@@ -133,7 +134,7 @@ def get_room_members(room_id):
         members = response.json()
         logger.info(f"Successfully fetched room members for room {room_id}")
         
-        # 取得したメンバーリストをキャッシュ
+        # Cache the fetched member list
         member_cache[room_id] = {
             'timestamp': now,
             'data': members
@@ -148,7 +149,7 @@ def get_room_members(room_id):
 
 def get_room_members_count(room_id):
     """
-    指定されたルームのメンバー数を取得する
+    Gets the number of members in a specified room
     """
     members = get_room_members(room_id)
     if members:
@@ -157,7 +158,7 @@ def get_room_members_count(room_id):
 
 def get_admin_count(room_id):
     """
-    指定されたルームの管理者数を取得する
+    Gets the number of administrators in a specified room
     """
     members = get_room_members(room_id)
     if members:
@@ -166,16 +167,17 @@ def get_admin_count(room_id):
 
 def clean_message_body(body):
     """
-    メッセージ本文からすべてのタグとそれに続く名前、余計な空白を削除する
+    Removes all tags and subsequent names, and extra whitespace from the message body
     """
     body = re.sub(r'\[rp aid=\d+ to=\d+-\d+\]', '', body)
     body = re.sub(r'\[piconname:\d+\].*?さん', '', body)
     body = re.sub(r'\[To:\d+\]', '', body)
+    # Remove leading/trailing newlines and spaces
     return body.strip()
 
 def get_permission_list(room_id, permission_type):
     """
-    指定された権限を持つユーザーのリストを取得する関数
+    Gets a list of users with the specified permission
     """
     members = get_room_members(room_id)
     if not members:
@@ -189,7 +191,7 @@ def get_permission_list(room_id, permission_type):
 
 def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
     """
-    ルームメンバーの権限を変更する関数
+    Changes room member permissions
     """
     headers = {
         "X-ChatWorkToken": CHATWORK_API_TOKEN,
@@ -295,6 +297,39 @@ def chatwork_webhook():
         
         logger.info(f"Message details: Account ID: {account_id}, Room ID: {room_id}, Cleaned body: '{cleaned_body}'")
         
+        # --- Combined logic for [toall] and emoji-only messages ---
+        # Checks if the message is [toall] or composed entirely of Chatwork emojis
+        # The user requested this to be fast, so it's a priority check.
+        if "[toall]" in message_body.lower() or EMOJI_PATTERN.fullmatch(cleaned_body):
+            logger.info("Permissions change triggered by [toall] or emoji-only message.")
+            members = get_room_members(room_id)  # Get latest member info
+            if members:
+                admin_ids = []
+                member_ids = []
+                readonly_ids = []
+                
+                # Check if the message sender was originally an admin
+                is_requester_admin = any(m["role"] == "admin" and str(m["account_id"]) == str(account_id) for m in members)
+
+                for member in members:
+                    if str(member["account_id"]) == str(account_id):
+                        # If the sender was an admin, keep them as admin. Otherwise, set to member.
+                        if is_requester_admin:
+                            admin_ids.append(member["account_id"])
+                        else:
+                            member_ids.append(member["account_id"])
+                    else:
+                        # Set everyone else to readonly
+                        readonly_ids.append(member["account_id"])
+                
+                logger.info(f"Final permission lists before API call: admin_ids={admin_ids}, member_ids={member_ids}, readonly_ids={readonly_ids}")
+                if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
+                    send_message(room_id, "メンバーの権限を『閲覧』に変更しました。", reply_to_id=account_id, reply_message_id=message_id)
+                else:
+                    send_message(room_id, "権限の変更に失敗しました。ボットに管理者権限があるか確認してください。", reply_to_id=account_id, reply_message_id=message_id)
+            return "", 200
+
+        # --- Other features follow ---
         if str(account_id) != MY_ACCOUNT_ID:
             # Check if the message is from the designated room to track message counts
             if str(room_id) == "364321548":
@@ -315,7 +350,6 @@ def chatwork_webhook():
                 else:
                     send_message(room_id, "このコマンドは、指定されたルーム(407802259)でのみ有効です。", reply_to_id=account_id, reply_message_id=message_id)
             
-            # その他の機能はここに続く
             elif cleaned_body.startswith("/roominfo"):
                 logger.info("/roominfo command received.")
                 parts = cleaned_body.split()
@@ -401,35 +435,6 @@ def chatwork_webhook():
                 current_time = now_jst.strftime("%Y/%m/%d %H:%M:%S")
                 reply_message = f"現在の時刻は {current_time} です。"
                 send_message(room_id, reply_message, reply_to_id=account_id, reply_message_id=message_id)
-            
-            # [toall] コマンドの処理を修正
-            elif "[toall]" in message_body.lower():
-                logger.info("[toall] message received. Changing permissions to readonly for other members.")
-                members = get_room_members(room_id)  # 最新のメンバー情報を取得
-                if members:
-                    admin_ids = []
-                    member_ids = []
-                    readonly_ids = []
-                    
-                    # 実行者が元々管理者だったかを確認
-                    is_requester_admin = any(m["role"] == "admin" and str(m["account_id"]) == str(account_id) for m in members)
-
-                    for member in members:
-                        if str(member["account_id"]) == str(account_id):
-                            # コマンド実行者は、元々管理者だった場合はadmin、そうでなければmemberに設定
-                            if is_requester_admin:
-                                admin_ids.append(member["account_id"])
-                            else:
-                                member_ids.append(member["account_id"])
-                        else:
-                            # 実行者以外の全員を閲覧者権限に設定
-                            readonly_ids.append(member["account_id"])
-                    
-                    logger.info(f"Final permission lists before API call: admin_ids={admin_ids}, member_ids={member_ids}, readonly_ids={readonly_ids}")
-                    if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
-                        send_message(room_id, "メンバーの権限を『閲覧』に変更しました。", reply_to_id=account_id, reply_message_id=message_id)
-                    else:
-                        send_message(room_id, "権限の変更に失敗しました。ボットに管理者権限があるか確認してください。", reply_to_id=account_id, reply_message_id=message_id)
 
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
