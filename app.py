@@ -1,17 +1,20 @@
 import os
 import json
 import logging
-from datetime import datetime, timezone, timedelta
-from flask import Flask, request
 import requests
 import random
 import re
+from datetime import datetime, timezone, timedelta
+from flask import Flask, request
+from apscheduler.schedulers.background import BackgroundScheduler
+from collections import Counter
 
 # ロガー設定
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+scheduler = BackgroundScheduler()
 
 # Chatwork APIトークンと自分のアカウントIDを環境変数から取得
 CHATWORK_API_TOKEN = os.environ.get("CHATWORK_API_TOKEN")
@@ -211,6 +214,81 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         logger.error(f"Failed to change room permissions: {e}", exc_info=True)
         return False
 
+def get_yesterday_messages(room_id):
+    """
+    指定されたルームの昨日のメッセージを全て取得する
+    注意：Chatwork APIの仕様上、取得できるメッセージは直近100件までです。
+    """
+    headers = {
+        "X-ChatWorkToken": CHATWORK_API_TOKEN
+    }
+    try:
+        response = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}/messages", headers=headers, params={"force": "1"})
+        response.raise_for_status()
+        messages = response.json()
+
+        jst = timezone(timedelta(hours=9), 'JST')
+        now_jst = datetime.now(jst)
+        yesterday_start = (now_jst - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        yesterday_end = now_jst.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # 昨日のメッセージだけをフィルタリング
+        yesterday_messages = [
+            msg for msg in messages
+            if yesterday_start <= datetime.fromtimestamp(msg["send_time"], jst) < yesterday_end
+        ]
+
+        logger.info(f"Fetched {len(messages)} messages. Filtered {len(yesterday_messages)} messages for yesterday.")
+        return yesterday_messages
+    except requests.exceptions.HTTPError as err:
+        logger.error(f"HTTP Error occurred while fetching messages: {err.response.status_code} - {err.response.text}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to get messages: {e}", exc_info=True)
+        return None
+
+def post_daily_ranking(target_room_id):
+    """
+    メッセージ数ランキングを投稿する関数
+    """
+    logger.info(f"Posting daily ranking for room {target_room_id}...")
+
+    messages = get_yesterday_messages(target_room_id)
+    if not messages:
+        logger.warning("No messages found for yesterday. Skipping ranking post.")
+        send_message(target_room_id, "昨日はメッセージがありませんでした。")
+        return
+
+    # メッセージを投稿者IDでカウント
+    sender_ids = [msg["account"]["account_id"] for msg in messages]
+    message_counts = Counter(sender_ids)
+
+    # 自分のアカウントIDを除外
+    if int(MY_ACCOUNT_ID) in message_counts:
+        del message_counts[int(MY_ACCOUNT_ID)]
+
+    # トップ5のランキングを作成
+    ranking = message_counts.most_common(5)
+
+    if not ranking:
+        ranking_body = "昨日はメッセージがありませんでした。"
+    else:
+        # メンバー情報を取得して名前をマッピング
+        members = get_room_members(target_room_id)
+        member_names = {m['account_id']: m['name'] for m in members}
+        
+        ranking_lines = ["昨日の個人メッセージ数ランキング！"]
+        for i, (account_id, count) in enumerate(ranking, 1):
+            name = member_names.get(account_id, f"ユーザーID: {account_id}")
+            ranking_lines.append(f"{i}位　{name}さん")
+        
+        ranking_lines.append("以上です")
+        ranking_body = "\n".join(ranking_lines)
+
+    send_message(target_room_id, ranking_body)
+    logger.info("Daily ranking post finished.")
+
+
 @app.route("/", methods=["POST"])
 def chatwork_webhook():
     logger.info(f"Received a new webhook request. Headers: {request.headers}")
@@ -328,7 +406,15 @@ def chatwork_webhook():
                     reply_message = f"おみくじの結果は **{result}** です。"
                     send_message(room_id, reply_message, reply_to_id=account_id, reply_message_id=message_id)
 
-            # その他の機能（絵文字、テスト、toall）はここに続く
+            # メッセージ数ランキングのテスト機能
+            # ルームIDが407802259の場合のみ有効
+            elif cleaned_body in ["test message", "/ranking"]:
+                if str(room_id) == "407802259":
+                    post_daily_ranking("407802259")
+                else:
+                    send_message(room_id, "このコマンドは、指定されたルーム(407802259)でのみ有効です。")
+
+            # その他の機能（絵文字、toall）はここに続く
             emoji_count = len(EMOJI_PATTERN.findall(message_body))
             if emoji_count >= 15:
                 logger.info(f"High emoji count detected ({emoji_count}). Checking user's role.")
@@ -407,4 +493,14 @@ def chatwork_webhook():
     return "", 200
 
 if __name__ == "__main__":
+    # 日付が変わるタイミングでランキングを投稿するジョブを追加
+    # 毎日0時0分に実行
+    scheduler.add_job(
+        lambda: post_daily_ranking("407802259"),
+        trigger='cron',
+        hour=0,
+        minute=0,
+        timezone='Asia/Tokyo'
+    )
+    scheduler.start()
     app.run()
