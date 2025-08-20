@@ -27,7 +27,7 @@ EMOJI_PATTERN = re.compile(
 )
 
 # Chatworkの招待URLの正規表現
-INVITE_URL_PATTERN = re.compile(r"https:\/\/www\.chatwork\.com\/g\/(?P<token>[a-zA-Z0-9]+)")
+INVITE_URL_PATTERN = re.compile(r"https:\/\/www\.chatwork.com\/g\/(?P<token>[a-zA-Z0-9]+)")
 
 # Bot service is starting...
 logger.info("Bot service is starting...")
@@ -184,17 +184,30 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         logger.error(f"Failed to change room permissions: {e}", exc_info=True)
         return False
 
-def request_join_group_chat(invite_token):
+def accept_group_chat_invitation(invite_token):
     """
-    招待トークンを使ってグループチャットへの参加権限をリクエストする
+    指定された招待トークンを使ってグループチャットに参加する
     """
-    # 招待権限リクエストには、部屋情報の取得と同様のAPIが使えますが、
-    # 実際には直接APIでリクエストする機能はありません。
-    # この関数は、ログの記録とメッセージの送信のためだけに存在します。
-    # 実際には、手動での承認が必要になります。
-    # この関数は、あくまでbotが「リクエストを送った」という振る舞いを模倣するためのものです。
-    logger.info(f"Sending join request for room with token: {invite_token}")
-    return True
+    url = f"https://api.chatwork.com/v2/rooms"
+    headers = {
+        "X-ChatWorkToken": CHATWORK_API_TOKEN,
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    payload = {
+        "invite_token": invite_token
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, data=payload)
+        response.raise_for_status()
+        logger.info(f"Successfully joined new room with token {invite_token}. Response: {response.text}")
+        return True
+    except requests.exceptions.HTTPError as err:
+        logger.error(f"HTTP Error occurred while accepting invitation: {err.response.status_code} - {err.response.text}")
+        return False
+    except Exception as e:
+        logger.error(f"Failed to accept invitation: {e}", exc_info=True)
+        return False
 
 @app.route("/", methods=["POST"])
 def chatwork_webhook():
@@ -214,28 +227,26 @@ def chatwork_webhook():
         message_id = webhook_event.get("message_id")
         
         # /roominfo 以外のメッセージは常に既読にする
-        # 特定の部屋でも既読化は行う
         if not message_body.startswith("/roominfo"):
             mark_as_read(room_id)
-        
+
         # 特定の部屋ID (365406836) での招待URL処理
         if str(room_id) == "365406836":
             match = INVITE_URL_PATTERN.search(message_body)
             if match:
                 invite_token = match.group("token")
-                logger.info(f"Invitation URL detected in room {room_id}. Token: {invite_token}. Requesting join permission.")
-                if request_join_group_chat(invite_token):
-                    # 参加権限をリクエストしましたというメッセージを送信
-                    send_message(room_id, "新しい部屋に参加権限を送りました✅️", reply_to_id=account_id, reply_message_id=message_id)
-                    logger.info(f"Sent message: '新しい部屋に参加権限を送りました✅️' to room {room_id}")
+                logger.info(f"Invitation URL detected in room {room_id}. Token: {invite_token}. Attempting to join the new room.")
+                if accept_group_chat_invitation(invite_token):
+                    # 応答メッセージは送信せず、ログのみに出力
+                    logger.info("新しい部屋に参加しました✅")
                 else:
-                    logger.error("Failed to send join request. This part of the code should not be reached.")
+                    logger.error("招待の承認に失敗しました。URLが有効か、botがすでにその部屋にいるか確認してください。")
                 return "", 200
 
         cleaned_body = clean_message_body(message_body)
         
         logger.info(f"Message details: Account ID: {account_id}, Room ID: {room_id}, Cleaned body: '{cleaned_body}'")
-
+        
         if str(account_id) != MY_ACCOUNT_ID:
             
             # 部屋情報表示機能
