@@ -175,11 +175,14 @@ def chatwork_webhook():
     try:
         data = request.json
         webhook_event = data.get("webhook_event")
-        if not webhook_event: return "", 200
+        # Check if the room_id exists in the webhook event to confirm it's a valid webhook
+        room_id = webhook_event.get("room_id")
+        if not room_id:
+            logger.info("Received a non-webhook event. Ignoring.")
+            return "", 200
 
         message_body = webhook_event.get("body")
         account_id = webhook_event.get("account_id")
-        room_id = webhook_event.get("room_id")
         message_id = webhook_event.get("message_id")
         
         cleaned_body = clean_message_body(message_body)
