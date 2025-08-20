@@ -88,10 +88,11 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         "X-ChatWorkToken": CHATWORK_API_TOKEN,
         "Content-Type": "application/x-www-form-urlencoded"
     }
+    # 修正箇所: パラメーター名をAPIの仕様に合わせて変更
     payload = {
-        "members_admin": ",".join(map(str, admin_ids)),
-        "members_member": ",".join(map(str, member_ids)),
-        "members_readonly": ",".join(map(str, readonly_ids))
+        "members_admin_ids": ",".join(map(str, admin_ids)),
+        "members_member_ids": ",".join(map(str, member_ids)),
+        "members_readonly_ids": ",".join(map(str, readonly_ids))
     }
 
     logger.info(f"Attempting to change permissions for room {room_id}. Payload: {json.dumps(payload)}")
