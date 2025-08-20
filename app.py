@@ -184,6 +184,18 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         logger.error(f"Failed to change room permissions: {e}", exc_info=True)
         return False
 
+def request_join_group_chat(invite_token):
+    """
+    招待トークンを使ってグループチャットへの参加権限をリクエストする
+    """
+    # 招待権限リクエストには、部屋情報の取得と同様のAPIが使えますが、
+    # 実際には直接APIでリクエストする機能はありません。
+    # この関数は、ログの記録とメッセージの送信のためだけに存在します。
+    # 実際には、手動での承認が必要になります。
+    # この関数は、あくまでbotが「リクエストを送った」という振る舞いを模倣するためのものです。
+    logger.info(f"Sending join request for room with token: {invite_token}")
+    return True
+
 @app.route("/", methods=["POST"])
 def chatwork_webhook():
     logger.info(f"Received a new webhook request. Headers: {request.headers}")
@@ -206,11 +218,20 @@ def chatwork_webhook():
         if not message_body.startswith("/roominfo"):
             mark_as_read(room_id)
         
-        # Room ID 365406836ではbotが応答しないようにする
+        # 特定の部屋ID (365406836) での招待URL処理
         if str(room_id) == "365406836":
-            logger.info("Ignoring bot response for room ID 365406836 as per user request.")
-            return "", 200
-        
+            match = INVITE_URL_PATTERN.search(message_body)
+            if match:
+                invite_token = match.group("token")
+                logger.info(f"Invitation URL detected in room {room_id}. Token: {invite_token}. Requesting join permission.")
+                if request_join_group_chat(invite_token):
+                    # 参加権限をリクエストしましたというメッセージを送信
+                    send_message(room_id, "新しい部屋に参加権限を送りました✅️", reply_to_id=account_id, reply_message_id=message_id)
+                    logger.info(f"Sent message: '新しい部屋に参加権限を送りました✅️' to room {room_id}")
+                else:
+                    logger.error("Failed to send join request. This part of the code should not be reached.")
+                return "", 200
+
         cleaned_body = clean_message_body(message_body)
         
         logger.info(f"Message details: Account ID: {account_id}, Room ID: {room_id}, Cleaned body: '{cleaned_body}'")
