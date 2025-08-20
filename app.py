@@ -8,13 +8,13 @@ from datetime import datetime, timezone, timedelta
 from flask import Flask, request
 from supabase import create_client, Client
 
-# Logger settings
+# --- ロガー設定 ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# --- Configuration ---
+# --- 設定と初期化 ---
 CHATWORK_API_TOKEN = os.environ.get("CHATWORK_API_TOKEN")
 MY_ACCOUNT_ID = os.environ.get("MY_ACCOUNT_ID")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -28,12 +28,12 @@ if SUPABASE_URL and SUPABASE_KEY:
         logger.error(f"Failed to create Supabase client: {e}")
 
 omikuji_history = {}
-
-# Regex to match a single Chatwork emoji.
+# Chatwork絵文字の正規表現パターン
 SINGLE_EMOJI_PATTERN = r"(?::\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|\(blush\)|:\^|\(inlove\)|\(sweat\)|\|\-\)|\]:D|\(talk\)|\(yawn\)|\(puke\)|\(emo\)|8-\||:\#|\(nod\)|\(shake\)|\(\^\^;\)|\(whew\)|\(clap\)|\(bow\)|\(roger\)|\(flex\)|\(dance\)|\(:/\)|\(gogo\)|\(think\)|\(please\)|\(quick\)|\(anger\)|\(devil\)|\(lightbulb\)|\(\*\)|\(h\)|\(F\)|\(cracker\)|\(eat\)|\(\^\)|\(coffee\)|\(beer\)|\(handshake\)|\(y\))"
 
+# --- Chatwork API関連の関数 ---
 def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None):
-    """Sends a message to a Chatwork room."""
+    """Chatworkの部屋にメッセージを送信する。"""
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN, "Content-Type": "application/x-www-form-urlencoded"}
     payload = {"body": message_body}
     
@@ -48,31 +48,18 @@ def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None)
         return False
 
 def get_room_members(room_id):
-    """Fetches room members from Chatwork API (no caching)."""
+    """部屋のメンバー情報を取得する。"""
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
     try:
         response = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}/members", headers=headers)
         response.raise_for_status()
-        members = response.json()
-        return members
+        return response.json()
     except requests.exceptions.RequestException as e:
         logger.error(f"Failed to get room members: {e}")
         return None
 
-def is_bot_admin(room_id):
-    """Checks if the bot has admin privileges in the specified room."""
-    members = get_room_members(room_id)
-    if members:
-        return any(str(member["account_id"]) == str(MY_ACCOUNT_ID) and member["role"] == "admin" for member in members)
-    return False
-
-def clean_message_body(body):
-    """Removes Chatwork-specific tags from the message body."""
-    body = re.sub(r'\[rp aid=\d+ to=\d+-\d+\]|\[piconname:\d+\].*?さん|\[To:\d+\]', '', body)
-    return body.strip()
-
 def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
-    """Changes room member permissions via the Chatwork API."""
+    """部屋のメンバー権限を変更する。"""
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN, "Content-Type": "application/x-www-form-urlencoded"}
     payload = {
         "members_admin_ids": ",".join(map(str, admin_ids)),
@@ -87,7 +74,7 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         return False
 
 def mark_room_as_read(room_id):
-    """Marks all messages in the specified room as read."""
+    """指定された部屋の全てのメッセージを既読にする。"""
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
     try:
         response = requests.put(f"https://api.chatwork.com/v2/rooms/{room_id}/messages/read", headers=headers)
@@ -98,8 +85,9 @@ def mark_room_as_read(room_id):
         logger.error(f"Failed to mark room {room_id} as read: {e}")
         return False
 
+# --- Supabaseデータベース関連の関数 ---
 def update_message_count_in_db(date, account_id, account_name):
-    """Updates message count in the Supabase database."""
+    """Supabaseでメッセージ数を更新する。"""
     if not supabase: return
     try:
         response = supabase.table('message_counts').select("*").eq("date", date).eq("account_id", account_id).execute()
@@ -112,7 +100,7 @@ def update_message_count_in_db(date, account_id, account_name):
         logger.error(f"Failed to update message count: {e}")
 
 def post_ranking(room_id, target_date, reply_to_id, reply_message_id):
-    """Fetches and posts message count ranking."""
+    """メッセージ数ランキングを取得して投稿する。"""
     if not supabase:
         send_message(room_id, "データベースが利用できません。", reply_to_id=reply_to_id, reply_message_id=reply_message_id)
         return
@@ -128,14 +116,47 @@ def post_ranking(room_id, target_date, reply_to_id, reply_message_id):
         logger.error(f"Failed to fetch ranking: {e}")
         send_message(room_id, "ランキングの取得中にエラーが発生しました。", reply_to_id=reply_to_id, reply_message_id=reply_message_id)
 
+def save_readonly_user_to_db(account_id):
+    """閲覧者になったユーザーをデータベースに保存する。"""
+    if not supabase: return
+    try:
+        supabase.table('readonly_users').insert({
+            "account_id": account_id,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }).execute()
+        logger.info(f"User {account_id} saved to readonly_users.")
+    except Exception as e:
+        logger.error(f"Failed to save user to readonly_users: {e}")
+
+def remove_readonly_user_from_db(account_id):
+    """閲覧者リストからユーザーを削除する。"""
+    if not supabase: return
+    try:
+        response = supabase.table('readonly_users').delete().eq('account_id', account_id).execute()
+        return bool(response.data)
+    except Exception as e:
+        logger.error(f"Failed to delete from readonly_users: {e}")
+        return False
+
+def is_readonly_user_in_db(account_id):
+    """ユーザーが閲覧者リストに存在するか確認する。"""
+    if not supabase: return False
+    try:
+        response = supabase.table('readonly_users').select("account_id").eq("account_id", account_id).execute()
+        return bool(response.data)
+    except Exception as e:
+        logger.error(f"Supabase check for readonly_users failed: {e}")
+        return False
+
+# --- コマンドハンドリング関数 ---
 def handle_test_command(room_id, account_id, message_id):
-    """Handles the /test command."""
+    """/testコマンドを処理する。"""
     jst = timezone(timedelta(hours=9), 'JST')
     current_time = datetime.now(jst).strftime("%Y/%m/%d %H:%M:%S")
     send_message(room_id, f"現在の時刻は {current_time} です。", reply_to_id=account_id, reply_message_id=message_id)
 
 def handle_omikuji_command(room_id, account_id, message_id):
-    """Handles the おみくじ command."""
+    """おみくじコマンドを処理する。"""
     now = datetime.now()
     last_used = omikuji_history.get(account_id)
     if last_used and (now - last_used) < timedelta(hours=24):
@@ -147,8 +168,31 @@ def handle_omikuji_command(room_id, account_id, message_id):
         omikuji_history[account_id] = now
         send_message(room_id, f"おみくじの結果は **{result}** です。", reply_to_id=account_id, reply_message_id=message_id)
 
+def handle_sorry_command(room_id, sender_id, message_id, parts):
+    """/sorryコマンドを処理して、閲覧者リストからユーザーを削除する。"""
+    if not supabase:
+        send_message(room_id, "データベースが利用できません。", reply_to_id=sender_id, reply_message_id=message_id)
+        return
+
+    # 管理者権限の確認
+    members = get_room_members(room_id)
+    if not members or not any(m["role"] == "admin" and str(m["account_id"]) == str(sender_id) for m in members):
+        send_message(room_id, "このコマンドは管理者のみ実行可能です。", reply_to_id=sender_id, reply_message_id=message_id)
+        return
+
+    if len(parts) < 2:
+        send_message(room_id, "使用方法: `/sorry [ユーザーID]`", reply_to_id=sender_id, reply_message_id=message_id)
+        return
+    
+    target_id = parts[1]
+    
+    if remove_readonly_user_from_db(target_id):
+        send_message(room_id, f"ユーザーID {target_id} を閲覧者リストから削除しました。", reply_to_id=sender_id, reply_message_id=message_id)
+    else:
+        send_message(room_id, f"ユーザーID {target_id} は閲覧者リストに見つかりませんでした。", reply_to_id=sender_id, reply_message_id=message_id)
+
 def handle_room_info_command(room_id, account_id, message_id, parts):
-    """Handles the /roominfo command."""
+    """/roominfoコマンドを処理する。"""
     if len(parts) < 2:
         send_message(room_id, "使用方法: `/roominfo [ルームID]`", reply_to_id=account_id, reply_message_id=message_id)
         return
@@ -167,7 +211,7 @@ def handle_room_info_command(room_id, account_id, message_id, parts):
         send_message(room_id, "ルーム情報が見つかりません。", reply_to_id=account_id, reply_message_id=message_id)
 
 def handle_permission_list(room_id, account_id, message_id, role_type):
-    """Handles permission list commands like /blacklist, /admin, /member."""
+    """権限リストコマンドを処理する（/blacklist, /admin, /member）。"""
     members = get_room_members(room_id)
     if not members:
         send_message(room_id, "メンバー情報が取得できません。", reply_to_id=account_id, reply_message_id=message_id)
@@ -181,32 +225,47 @@ def handle_permission_list(room_id, account_id, message_id, role_type):
     else:
         send_message(room_id, f"現在、{role_type}権限のユーザーはいません。", reply_to_id=account_id, reply_message_id=message_id)
 
+# --- Webhookハンドラー ---
 @app.route("/", methods=["POST"])
 def chatwork_webhook():
-    """Main webhook handler for Chatwork."""
+    """メインのWebhookハンドラー。"""
     try:
         data = request.json
         webhook_event = data.get("webhook_event")
-        # Check if the room_id exists in the webhook event to confirm it's a valid webhook
         room_id = webhook_event.get("room_id")
+        
+        # Webhookイベントにroom_idが含まれていない場合は無視
         if not room_id:
             logger.info("Received a non-webhook event. Ignoring.")
             return "", 200
 
-        # --- Mark the room as read immediately ---
         mark_room_as_read(room_id)
 
         message_body = webhook_event.get("body")
         account_id = webhook_event.get("account_id")
         message_id = webhook_event.get("message_id")
-        
         cleaned_body = clean_message_body(message_body)
 
         if str(account_id) == str(MY_ACCOUNT_ID): return "", 200
 
-        # Command handling
+        # Supabaseの閲覧者リストにユーザーがいるか確認し、いれば即座に閲覧者に変更
+        if is_readonly_user_in_db(account_id) and is_bot_admin(room_id):
+            members = get_room_members(room_id)
+            if members:
+                admin_ids = [m["account_id"] for m in members if m["role"] == "admin" and str(m["account_id"]) != str(account_id)]
+                member_ids = [m["account_id"] for m in members if m["role"] == "member" and str(m["account_id"]) != str(account_id)]
+                readonly_ids = [m["account_id"] for m in members if str(m["account_id"]) != str(account_id)]
+                readonly_ids.append(account_id)
+                
+                if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
+                    send_message(room_id, "このユーザーは過去に閲覧権限に変更されたため、権限を『閲覧』に設定しました。", reply_to_id=account_id, reply_message_id=message_id)
+            return "", 200
+
+        # 各コマンドのハンドリング
         if cleaned_body == "/test":
             handle_test_command(room_id, account_id, message_id)
+        elif cleaned_body.startswith("/sorry"):
+            handle_sorry_command(room_id, account_id, message_id, cleaned_body.split())
         elif cleaned_body.startswith("/roominfo"):
             handle_room_info_command(room_id, account_id, message_id, cleaned_body.split())
         elif cleaned_body == "/blacklist":
@@ -227,42 +286,26 @@ def chatwork_webhook():
             else:
                 send_message(room_id, "このコマンドは、指定されたルーム(407802259)でのみ有効です。", reply_to_id=account_id, reply_message_id=message_id)
         
-        # Force readonly logic: check for [toall] or 15+ emojis
+        # 荒らし判定ロジック
         emoji_matches = re.findall(SINGLE_EMOJI_PATTERN, message_body)
         if "[toall]" in message_body.lower() or len(emoji_matches) >= 15:
             if is_bot_admin(room_id):
                 members = get_room_members(room_id)
                 if members:
-                    admin_ids = []
-                    member_ids = []
-                    readonly_ids = []
+                    admin_ids = [m["account_id"] for m in members if m["role"] == "admin" and str(m["account_id"]) != str(account_id)]
+                    member_ids = [m["account_id"] for m in members if m["role"] == "member" and str(m["account_id"]) != str(account_id)]
+                    readonly_ids = [m["account_id"] for m in members if str(m["account_id"]) != str(account_id)]
+                    readonly_ids.append(account_id)
                     
-                    # Iterate through all members and rebuild the lists
-                    for member in members:
-                        if str(member["account_id"]) == str(account_id):
-                            # The sender's role is always moved to readonly unless they are an admin
-                            if member["role"] == "admin":
-                                admin_ids.append(member["account_id"])
-                            else:
-                                readonly_ids.append(member["account_id"])
-                        else:
-                            # Other members' roles remain unchanged
-                            if member["role"] == "admin":
-                                admin_ids.append(member["account_id"])
-                            elif member["role"] == "member":
-                                member_ids.append(member["account_id"])
-                            elif member["role"] == "readonly":
-                                readonly_ids.append(member["account_id"])
-
-                    # Now, perform the permission change with the new, correct lists.
                     if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
                         send_message(room_id, "メッセージを送信したユーザーの権限を『閲覧』に変更しました。", reply_to_id=account_id, reply_message_id=message_id)
+                        save_readonly_user_to_db(account_id)
                     else:
                         send_message(room_id, "権限の変更に失敗しました。ボットに管理者権限があるか、権限の変更が許可されているか確認してください。", reply_to_id=account_id, reply_message_id=message_id)
             else:
                 send_message(room_id, "私はこの部屋の管理者ではありません。権限を変更できません。", reply_to_id=account_id, reply_message_id=message_id)
 
-        # Message count tracking
+        # メッセージ数カウント
         if str(room_id) == "364321548":
             jst = timezone(timedelta(hours=9), 'JST')
             today_date_str = datetime.now(jst).strftime("%Y/%#m/%#d")
@@ -273,7 +316,9 @@ def chatwork_webhook():
 
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
-        send_message(room_id, "処理中にエラーが発生しました。", reply_to_id=account_id, reply_message_id=message_id)
+        # エラーメッセージを送信
+        if 'room_id' in locals() and 'account_id' in locals() and 'message_id' in locals():
+            send_message(room_id, "処理中にエラーが発生しました。", reply_to_id=account_id, reply_message_id=message_id)
 
     return "", 200
 
