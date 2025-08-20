@@ -27,8 +27,6 @@ if SUPABASE_URL and SUPABASE_KEY:
     except Exception as e:
         logger.error(f"Failed to create Supabase client: {e}")
 
-member_cache = {}
-CACHE_EXPIRY_HOURS = 24
 omikuji_history = {}
 
 # Regex to match a single Chatwork emoji.
@@ -113,10 +111,10 @@ def post_ranking(room_id, target_date, reply_to_id, reply_message_id):
             send_message(room_id, f"{target_date} のデータが見つかりませんでした。", reply_to_id=reply_to_id, reply_message_id=reply_message_id)
         else:
             ranking_lines = [f"{target_date} の個人メッセージ数ランキング！"] + [f"{i}位　{item.get('name', 'Unknown')}さん ({item.get('message_count', 0)}件)" for i, item in enumerate(ranking, 1)] + ["以上です"]
-            send_message(room_id, "\n".join(ranking_lines), reply_to_id=reply_to_id, reply_message_id=message_id)
+            send_message(room_id, "\n".join(ranking_lines), reply_to_id=reply_to_id, reply_message_id=reply_message_id)
     except Exception as e:
         logger.error(f"Failed to fetch ranking: {e}")
-        send_message(room_id, "ランキングの取得中にエラーが発生しました。", reply_to_id=account_id, reply_message_id=message_id)
+        send_message(room_id, "ランキングの取得中にエラーが発生しました。", reply_to_id=reply_to_id, reply_message_id=reply_message_id)
 
 def handle_test_command(room_id, account_id, message_id):
     """Handles the /test command."""
@@ -186,7 +184,7 @@ def chatwork_webhook():
         
         cleaned_body = clean_message_body(message_body)
 
-        if str(account_id) == MY_ACCOUNT_ID: return "", 200
+        if str(account_id) == str(MY_ACCOUNT_ID): return "", 200
 
         # Command handling
         if cleaned_body == "/test":
