@@ -302,7 +302,6 @@ def chatwork_webhook():
                 today_date_str = datetime.now(jst).strftime("%Y/%#m/%#d")
                 
                 members = get_room_members(room_id)
-                # エラーハンドリングを追加
                 if members:
                     account_name = next((m["name"] for m in members if str(m["account_id"]) == str(account_id)), "Unknown User")
                     update_message_count_in_db(today_date_str, account_id, account_name)
@@ -403,10 +402,10 @@ def chatwork_webhook():
                 reply_message = f"現在の時刻は {current_time} です。"
                 send_message(room_id, reply_message, reply_to_id=account_id, reply_message_id=message_id)
 
+            # [toall] コマンドの処理を修正
             elif "[toall]" in message_body.lower():
                 logger.info("[toall] message received. Changing permissions to readonly for other members.")
-                send_message(room_id, "ルームメンバーの権限を更新します。")
-                members = get_room_members(room_id)
+                members = get_room_members(room_id) # 最新のメンバー情報を取得
                 if members:
                     admin_ids = []
                     member_ids = []
@@ -414,15 +413,17 @@ def chatwork_webhook():
                     
                     for member in members:
                         if str(member["account_id"]) == str(account_id):
+                            # コマンド実行者はメンバー権限に設定
                             member_ids.append(member["account_id"])
                         else:
+                            # 実行者以外の全員を閲覧者権限に設定
                             readonly_ids.append(member["account_id"])
                     
                     logger.info(f"Final permission lists before API call: admin_ids={admin_ids}, member_ids={member_ids}, readonly_ids={readonly_ids}")
                     if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
-                        send_message(room_id, "メンバーの権限を『閲覧』に変更しました。")
+                        send_message(room_id, "メンバーの権限を『閲覧』に変更しました。", reply_to_id=account_id, reply_message_id=message_id)
                     else:
-                        send_message(room_id, "権限の変更に失敗しました。ボットに管理者権限があるか確認してください。")
+                        send_message(room_id, "権限の変更に失敗しました。ボットに管理者権限があるか確認してください。", reply_to_id=account_id, reply_message_id=message_id)
 
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
