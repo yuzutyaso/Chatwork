@@ -213,28 +213,29 @@ def chatwork_webhook():
                     admin_ids = []
                     member_ids = []
                     readonly_ids = []
-
-                    # Build new permission lists
+                    
+                    # Iterate through all members and rebuild the lists
                     for member in members:
                         if str(member["account_id"]) == str(account_id):
-                            # The sender is changed to 'readonly' (if not an admin)
+                            # This is the sender. Demote them to readonly if they aren't an admin.
                             if member["role"] == "admin":
                                 admin_ids.append(member["account_id"])
                             else:
                                 readonly_ids.append(member["account_id"])
                         else:
-                            # Other members retain their original roles
+                            # This is not the sender. Their role remains unchanged.
                             if member["role"] == "admin":
                                 admin_ids.append(member["account_id"])
                             elif member["role"] == "member":
                                 member_ids.append(member["account_id"])
                             elif member["role"] == "readonly":
                                 readonly_ids.append(member["account_id"])
-                    
+
+                    # Now, perform the permission change with the new, correct lists.
                     if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
                         send_message(room_id, "メッセージを送信したユーザーの権限を『閲覧』に変更しました。", reply_to_id=account_id, reply_message_id=message_id)
                     else:
-                        send_message(room_id, "権限の変更に失敗しました。ボットに管理者権限があるか確認してください。", reply_to_id=account_id, reply_message_id=message_id)
+                        send_message(room_id, "権限の変更に失敗しました。ボットに管理者権限があるか、権限の変更が許可されているか確認してください。", reply_to_id=account_id, reply_message_id=message_id)
             else:
                 send_message(room_id, "私はこの部屋の管理者ではありません。権限を変更できません。", reply_to_id=account_id, reply_message_id=message_id)
 
