@@ -6,19 +6,33 @@ import random
 import re
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request
-from apscheduler.schedulers.background import BackgroundScheduler
 from collections import Counter
+from supabase import create_client, Client
 
 # ロガー設定
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-scheduler = BackgroundScheduler()
 
 # Chatwork APIトークンと自分のアカウントIDを環境変数から取得
 CHATWORK_API_TOKEN = os.environ.get("CHATWORK_API_TOKEN")
 MY_ACCOUNT_ID = os.environ.get("MY_ACCOUNT_ID")
+
+# Supabaseの設定
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logger.info("Supabase client created successfully.")
+    except Exception as e:
+        logger.error(f"Failed to create Supabase client: {e}", exc_info=True)
+        supabase = None
+else:
+    logger.warning("SUPABASE_URL or SUPABASE_KEY is not set. Database functionality will be disabled.")
+    supabase = None
 
 # ユーザーのおみくじ利用履歴を記録する辞書
 # キー: ユーザーID (account_id), 値: 最終利用日時 (datetimeオブジェクト)
@@ -214,86 +228,68 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         logger.error(f"Failed to change room permissions: {e}", exc_info=True)
         return False
 
-def get_yesterday_messages(room_id):
+def update_message_count_in_db(date, account_id, account_name):
     """
-    指定されたルームの昨日のメッセージを全て取得する
-    注意：Chatwork APIの仕様上、取得できるメッセージは直近100件までです。
+    Updates or inserts a message count for a user and date in the database.
     """
-    headers = {
-        "X-ChatWorkToken": CHATWORK_API_TOKEN
-    }
-    try:
-        response = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}/messages", headers=headers, params={"force": "1"})
-        response.raise_for_status()
-        messages = response.json()
-
-        jst = timezone(timedelta(hours=9), 'JST')
-        now_jst = datetime.now(jst)
-        yesterday_start = (now_jst - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        yesterday_end = now_jst.replace(hour=0, minute=0, second=0, microsecond=0)
-
-        # 昨日のメッセージだけをフィルタリング
-        yesterday_messages = [
-            msg for msg in messages
-            if yesterday_start <= datetime.fromtimestamp(msg["send_time"], jst) < yesterday_end
-        ]
-
-        logger.info(f"Fetched {len(messages)} messages. Filtered {len(yesterday_messages)} messages for yesterday.")
-        return yesterday_messages
-    except requests.exceptions.HTTPError as err:
-        logger.error(f"HTTP Error occurred while fetching messages: {err.response.status_code} - {err.response.text}")
-        return None
-    except Exception as e:
-        logger.error(f"Failed to get messages: {e}", exc_info=True)
-        return None
-
-def post_daily_ranking(target_room_id):
-    """
-    メッセージ数ランキングを投稿する関数
-    """
-    logger.info(f"Posting daily ranking for room {target_room_id}...")
-
-    messages = get_yesterday_messages(target_room_id)
-    if not messages:
-        logger.warning("No messages found for yesterday. Skipping ranking post.")
-        send_message(target_room_id, "昨日はメッセージがありませんでした。")
+    if not supabase:
+        logger.warning("Supabase client is not available. Skipping database update.")
         return
 
-    # メッセージを投稿者IDでカウント
-    sender_ids = [msg["account"]["account_id"] for msg in messages]
-    message_counts = Counter(sender_ids)
-
-    # 自分のアカウントIDを除外
-    if int(MY_ACCOUNT_ID) in message_counts:
-        del message_counts[int(MY_ACCOUNT_ID)]
-
-    # トップ5のランキングを作成
-    ranking = message_counts.most_common(5)
-
-    if not ranking:
-        ranking_body = "昨日はメッセージがありませんでした。"
-    else:
-        # メンバー情報を取得して名前をマッピング
-        members = get_room_members(target_room_id)
-        member_names = {m['account_id']: m['name'] for m in members}
+    try:
+        # Check if a record for the user and date already exists
+        response = supabase.table('message_counts').select("*").eq("date", date).eq("account_id", account_id).execute()
         
-        ranking_lines = ["昨日の個人メッセージ数ランキング！"]
-        for i, (account_id, count) in enumerate(ranking, 1):
-            name = member_names.get(account_id, f"ユーザーID: {account_id}")
-            ranking_lines.append(f"{i}位　{name}さん")
-        
-        ranking_lines.append("以上です")
-        ranking_body = "\n".join(ranking_lines)
+        if response.data:
+            # If record exists, increment the message_count
+            current_count = response.data[0]['message_count']
+            supabase.table('message_counts').update({'message_count': current_count + 1}).eq("id", response.data[0]['id']).execute()
+            logger.info(f"Updated message count for {account_name} on {date}.")
+        else:
+            # If no record, create a new one
+            supabase.table('message_counts').insert({"date": date, "account_id": account_id, "name": account_name, "message_count": 1}).execute()
+            logger.info(f"Inserted new record for {account_name} on {date}.")
+            
+    except Exception as e:
+        logger.error(f"Failed to update message count in Supabase: {e}", exc_info=True)
 
-    send_message(target_room_id, ranking_body)
-    logger.info("Daily ranking post finished.")
+def post_ranking(room_id, target_date, reply_to_id, reply_message_id):
+    """
+    Posts the message count ranking for a specified date from the database.
+    """
+    if not supabase:
+        send_message(room_id, "データベースが利用できません。", reply_to_id=reply_to_id, reply_message_id=reply_message_id)
+        return
 
+    logger.info(f"Posting ranking for date: {target_date} in room {room_id}...")
+
+    try:
+        response = supabase.table('message_counts').select("*").eq("date", target_date).order("message_count", desc=True).limit(5).execute()
+        ranking = response.data
+
+        if not ranking:
+            ranking_body = f"{target_date} のメッセージデータが見つかりませんでした。"
+        else:
+            ranking_lines = [f"{target_date} の個人メッセージ数ランキング！"]
+            for i, item in enumerate(ranking, 1):
+                name = item.get("name", "Unknown")
+                count = item.get("message_count", 0)
+                ranking_lines.append(f"{i}位　{name}さん ({count}件)")
+            
+            ranking_lines.append("以上です")
+            ranking_body = "\n".join(ranking_lines)
+
+        send_message(room_id, ranking_body, reply_to_id=reply_to_id, reply_message_id=reply_message_id)
+        logger.info("Ranking post finished.")
+
+    except Exception as e:
+        logger.error(f"Failed to fetch ranking from Supabase: {e}", exc_info=True)
+        send_message(room_id, "ランキングの取得中にエラーが発生しました。", reply_to_id=reply_to_id, reply_message_id=reply_message_id)
 
 @app.route("/", methods=["POST"])
 def chatwork_webhook():
     logger.info(f"Received a new webhook request. Headers: {request.headers}")
     
-    # すべての部屋のメッセージを常に既読にする
     mark_all_rooms_as_read()
 
     try:
@@ -315,18 +311,34 @@ def chatwork_webhook():
         logger.info(f"Message details: Account ID: {account_id}, Room ID: {room_id}, Cleaned body: '{cleaned_body}'")
         
         if str(account_id) != MY_ACCOUNT_ID:
-            
-            # 部屋情報表示機能
-            if cleaned_body.startswith("/roominfo"):
-                logger.info("/roominfo command received.")
+            # Check if the message is from the designated room to track message counts
+            if str(room_id) == "364321548":
+                jst = timezone(timedelta(hours=9), 'JST')
+                today_date_str = datetime.now(jst).strftime("%Y/%#m/%#d")
                 
+                members = get_room_members(room_id)
+                account_name = next((m["name"] for m in members if str(m["account_id"]) == str(account_id)), "Unknown User")
+                
+                update_message_count_in_db(today_date_str, account_id, account_name)
+
+            # Ranking command processing
+            ranking_match = re.match(r'^/ranking\s+(\d{4}/\d{1,2}/\d{1,2})$', cleaned_body)
+            if ranking_match:
+                if str(room_id) == "407802259":
+                    target_date = ranking_match.group(1)
+                    post_ranking(room_id, target_date, account_id, message_id)
+                else:
+                    send_message(room_id, "このコマンドは、指定されたルーム(407802259)でのみ有効です。", reply_to_id=account_id, reply_message_id=message_id)
+            
+            # その他の機能はここに続く
+            elif cleaned_body.startswith("/roominfo"):
+                logger.info("/roominfo command received.")
                 parts = cleaned_body.split()
                 if len(parts) < 2:
                     send_message(room_id, "使用方法: `/roominfo [ルームID]`", reply_to_id=account_id, reply_message_id=message_id)
                     return "", 200
 
                 target_room_id = parts[1]
-                
                 room_info = get_room_info(target_room_id)
                 if room_info:
                     room_name = room_info.get("name", "不明な部屋名")
@@ -345,7 +357,6 @@ def chatwork_webhook():
                 else:
                     send_message(room_id, "指定されたルームIDの情報が見つかりません。ボットがその部屋に参加しているか確認してください。", reply_to_id=account_id, reply_message_id=message_id)
 
-            # 権限リスト表示機能
             elif cleaned_body == "/blacklist":
                 logger.info("Blacklist command received. Fetching readonly members.")
                 readonly_members = get_permission_list(room_id, "readonly")
@@ -368,8 +379,6 @@ def chatwork_webhook():
 
             elif cleaned_body == "/member":
                 logger.info("Member command received.")
-                
-                # ユーザーの権限をチェック
                 members = get_room_members(room_id)
                 user_role = next((m["role"] for m in members if str(m["account_id"]) == str(account_id)), None)
 
@@ -384,89 +393,32 @@ def chatwork_webhook():
                 else:
                     send_message(room_id, "このコマンドは管理者のみ実行可能です。", reply_to_id=account_id, reply_message_id=message_id)
             
-            # おみくじ機能
             elif "おみくじ" in cleaned_body:
                 logger.info("Omikuji message received. Drawing a fortune.")
-                
                 now = datetime.now()
                 last_used = omikuji_history.get(account_id)
 
-                # 最終利用日時が記録されていて、かつ24時間以内であればエラーメッセージを送信
                 if last_used and (now - last_used) < timedelta(hours=24):
                     send_message(room_id, "おみくじは1日1回です。また明日お試しください。", reply_to_id=account_id, reply_message_id=message_id)
                 else:
-                    # おみくじを引く
                     omikuji_results = ["大吉🎉", "吉😊", "中吉🙂", "小吉😅", "末吉🤔", "凶😭"]
                     omikuji_weights = [5, 4, 3, 2, 2, 1]
                     result = random.choices(omikuji_results, weights=omikuji_weights, k=1)[0]
-                    
-                    # 履歴を更新
                     omikuji_history[account_id] = now
-                    
                     reply_message = f"おみくじの結果は **{result}** です。"
                     send_message(room_id, reply_message, reply_to_id=account_id, reply_message_id=message_id)
-
-            # メッセージ数ランキングのテスト機能
-            # ルームIDが407802259の場合のみ有効
-            elif cleaned_body in ["test message", "/ranking"]:
-                if str(room_id) == "407802259":
-                    post_daily_ranking("407802259")
-                else:
-                    send_message(room_id, "このコマンドは、指定されたルーム(407802259)でのみ有効です。")
-
-            # その他の機能（絵文字、toall）はここに続く
-            emoji_count = len(EMOJI_PATTERN.findall(message_body))
-            if emoji_count >= 15:
-                logger.info(f"High emoji count detected ({emoji_count}). Checking user's role.")
-                
-                members = get_room_members(room_id)
-                if members:
-                    user_role = next((m["role"] for m in members if str(m["account_id"]) == str(account_id)), None)
-
-                    if user_role == "admin":
-                        logger.info("User is an admin. Skipping permission change.")
-                        send_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}]\n管理者の方、メッセージに絵文字が多すぎます。節度を守った利用をお願いします。")
-                    else:
-                        logger.info("User is not an admin. Proceeding with permission change.")
-                        send_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}]\nメッセージに15個以上の絵文字が検出されました。あなたの権限を『閲覧』に変更します。")
-                        
-                        admin_ids = []
-                        member_ids = []
-                        readonly_ids = []
-                        
-                        for member in members:
-                            if str(member["account_id"]) == str(account_id):
-                                continue
-                            
-                            if member["role"] == "admin":
-                                admin_ids.append(member["account_id"])
-                            elif member["role"] == "member":
-                                member_ids.append(member["account_id"])
-                            elif member["role"] == "readonly":
-                                readonly_ids.append(member["account_id"])
-
-                        if str(account_id) not in readonly_ids:
-                            readonly_ids.append(str(account_id))
-                        
-                        logger.info(f"Final permission lists before API call: admin_ids={admin_ids}, member_ids={member_ids}, readonly_ids={readonly_ids}")
-                        if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
-                            send_message(room_id, "メンバーの権限を更新しました。")
-                        else:
-                            send_message(room_id, "権限の変更に失敗しました。ボットにグループチャットの管理者権限があるか、APIトークンに正しいスコープが付与されているか確認してください。")
             
             elif "test" in cleaned_body:
                 logger.info("Test message received. Responding with current time.")
                 jst = timezone(timedelta(hours=9), 'JST')
                 now_jst = datetime.now(jst)
                 current_time = now_jst.strftime("%Y/%m/%d %H:%M:%S")
-                
                 reply_message = f"現在の時刻は {current_time} です。"
                 send_message(room_id, reply_message, reply_to_id=account_id, reply_message_id=message_id)
 
             elif "[toall]" in message_body.lower():
                 logger.info("[toall] message received. Changing permissions to readonly for other members.")
                 send_message(room_id, "ルームメンバーの権限を更新します。")
-                
                 members = get_room_members(room_id)
                 if members:
                     admin_ids = []
@@ -493,14 +445,4 @@ def chatwork_webhook():
     return "", 200
 
 if __name__ == "__main__":
-    # 日付が変わるタイミングでランキングを投稿するジョブを追加
-    # 毎日0時0分に実行
-    scheduler.add_job(
-        lambda: post_daily_ranking("407802259"),
-        trigger='cron',
-        hour=0,
-        minute=0,
-        timezone='Asia/Tokyo'
-    )
-    scheduler.start()
     app.run()
