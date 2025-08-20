@@ -86,6 +86,18 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         logger.error(f"Failed to change permissions: {e}")
         return False
 
+def mark_room_as_read(room_id):
+    """Marks all messages in the specified room as read."""
+    headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
+    try:
+        response = requests.put(f"https://api.chatwork.com/v2/rooms/{room_id}/messages/read", headers=headers)
+        response.raise_for_status()
+        logger.info(f"Successfully marked room {room_id} as read.")
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to mark room {room_id} as read: {e}")
+        return False
+
 def update_message_count_in_db(date, account_id, account_name):
     """Updates message count in the Supabase database."""
     if not supabase: return
@@ -180,6 +192,9 @@ def chatwork_webhook():
         if not room_id:
             logger.info("Received a non-webhook event. Ignoring.")
             return "", 200
+
+        # --- Mark the room as read immediately ---
+        mark_room_as_read(room_id)
 
         message_body = webhook_event.get("body")
         account_id = webhook_event.get("account_id")
