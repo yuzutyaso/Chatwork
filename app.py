@@ -88,7 +88,6 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         "X-ChatWorkToken": CHATWORK_API_TOKEN,
         "Content-Type": "application/x-www-form-urlencoded"
     }
-    # 修正箇所: パラメーター名をAPIの仕様に合わせて変更
     payload = {
         "members_admin_ids": ",".join(map(str, admin_ids)),
         "members_member_ids": ",".join(map(str, member_ids)),
@@ -135,35 +134,44 @@ def chatwork_webhook():
 
         if str(account_id) != MY_ACCOUNT_ID:
             if emoji_count >= 15:
-                logger.info(f"High emoji count detected ({emoji_count}). Starting permission change process.")
-                send_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}]\nメッセージに15個以上の絵文字が検出されました。あなたの権限を『閲覧』に変更します。")
+                logger.info(f"High emoji count detected ({emoji_count}). Checking user's role.")
                 
                 members = get_room_members(room_id)
                 if members:
-                    admin_ids = []
-                    member_ids = []
-                    readonly_ids = []
-                    
-                    for member in members:
-                        # 権限変更対象ユーザーは除く
-                        if str(member["account_id"]) == str(account_id):
-                            continue
-                        
-                        if member["role"] == "admin":
-                            admin_ids.append(member["account_id"])
-                        elif member["role"] == "member":
-                            member_ids.append(member["account_id"])
-                        elif member["role"] == "readonly":
-                            readonly_ids.append(member["account_id"])
+                    user_role = next((m["role"] for m in members if str(m["account_id"]) == str(account_id)), None)
 
-                    if str(account_id) not in readonly_ids:
-                        readonly_ids.append(str(account_id))
-                    
-                    logger.info(f"Final permission lists before API call: admin_ids={admin_ids}, member_ids={member_ids}, readonly_ids={readonly_ids}")
-                    if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
-                        send_message(room_id, "メンバーの権限を更新しました。")
+                    if user_role == "admin":
+                        # 管理者の場合は権限変更を行わず、注意喚起のみ
+                        logger.info("User is an admin. Skipping permission change.")
+                        send_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}]\n管理者の方、メッセージに絵文字が多すぎます。節度を守った利用をお願いします。")
                     else:
-                        send_message(room_id, "権限の変更に失敗しました。ボットにグループチャットの管理者権限があるか、APIトークンに正しいスコープが付与されているか確認してください。")
+                        # 管理者ではない場合は権限変更を行う
+                        logger.info("User is not an admin. Proceeding with permission change.")
+                        send_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}]\nメッセージに15個以上の絵文字が検出されました。あなたの権限を『閲覧』に変更します。")
+                        
+                        admin_ids = []
+                        member_ids = []
+                        readonly_ids = []
+                        
+                        for member in members:
+                            if str(member["account_id"]) == str(account_id):
+                                continue
+                            
+                            if member["role"] == "admin":
+                                admin_ids.append(member["account_id"])
+                            elif member["role"] == "member":
+                                member_ids.append(member["account_id"])
+                            elif member["role"] == "readonly":
+                                readonly_ids.append(member["account_id"])
+
+                        if str(account_id) not in readonly_ids:
+                            readonly_ids.append(str(account_id))
+                        
+                        logger.info(f"Final permission lists before API call: admin_ids={admin_ids}, member_ids={member_ids}, readonly_ids={readonly_ids}")
+                        if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
+                            send_message(room_id, "メンバーの権限を更新しました。")
+                        else:
+                            send_message(room_id, "権限の変更に失敗しました。ボットにグループチャットの管理者権限があるか、APIトークンに正しいスコープが付与されているか確認してください。")
             
             elif "test" in cleaned_body:
                 logger.info("Test message received. Responding with current time.")
