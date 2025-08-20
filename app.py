@@ -165,6 +165,17 @@ def get_admin_count(room_id):
         return sum(1 for m in members if m["role"] == "admin")
     return 0
 
+def is_bot_admin(room_id):
+    """
+    Checks if the bot itself has admin privileges in the specified room.
+    """
+    members = get_room_members(room_id)
+    if members:
+        for member in members:
+            if str(member["account_id"]) == str(MY_ACCOUNT_ID) and member["role"] == "admin":
+                return True
+    return False
+
 def clean_message_body(body):
     """
     Removes all tags and subsequent names, and extra whitespace from the message body
@@ -302,31 +313,36 @@ def chatwork_webhook():
         # The user requested this to be fast, so it's a priority check.
         if "[toall]" in message_body.lower() or EMOJI_PATTERN.fullmatch(cleaned_body):
             logger.info("Permissions change triggered by [toall] or emoji-only message.")
-            members = get_room_members(room_id)  # Get latest member info
-            if members:
-                admin_ids = []
-                member_ids = []
-                readonly_ids = []
-                
-                # Check if the message sender was originally an admin
-                is_requester_admin = any(m["role"] == "admin" and str(m["account_id"]) == str(account_id) for m in members)
+            
+            # Check if the bot has admin rights before attempting to change permissions
+            if is_bot_admin(room_id):
+                members = get_room_members(room_id)  # Get latest member info
+                if members:
+                    admin_ids = []
+                    member_ids = []
+                    readonly_ids = []
+                    
+                    # Check if the message sender was originally an admin
+                    is_requester_admin = any(m["role"] == "admin" and str(m["account_id"]) == str(account_id) for m in members)
 
-                for member in members:
-                    if str(member["account_id"]) == str(account_id):
-                        # If the sender was an admin, keep them as admin. Otherwise, set to member.
-                        if is_requester_admin:
-                            admin_ids.append(member["account_id"])
+                    for member in members:
+                        if str(member["account_id"]) == str(account_id):
+                            # If the sender was an admin, keep them as admin. Otherwise, set to member.
+                            if is_requester_admin:
+                                admin_ids.append(member["account_id"])
+                            else:
+                                member_ids.append(member["account_id"])
                         else:
-                            member_ids.append(member["account_id"])
+                            # Set everyone else to readonly
+                            readonly_ids.append(member["account_id"])
+                    
+                    logger.info(f"Final permission lists before API call: admin_ids={admin_ids}, member_ids={member_ids}, readonly_ids={readonly_ids}")
+                    if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
+                        send_message(room_id, "メンバーの権限を『閲覧』に変更しました。", reply_to_id=account_id, reply_message_id=message_id)
                     else:
-                        # Set everyone else to readonly
-                        readonly_ids.append(member["account_id"])
-                
-                logger.info(f"Final permission lists before API call: admin_ids={admin_ids}, member_ids={member_ids}, readonly_ids={readonly_ids}")
-                if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
-                    send_message(room_id, "メンバーの権限を『閲覧』に変更しました。", reply_to_id=account_id, reply_message_id=message_id)
-                else:
-                    send_message(room_id, "権限の変更に失敗しました。ボットに管理者権限があるか確認してください。", reply_to_id=account_id, reply_message_id=message_id)
+                        send_message(room_id, "権限の変更に失敗しました。ボットに管理者権限があるか確認してください。", reply_to_id=account_id, reply_message_id=message_id)
+            else:
+                send_message(room_id, "私はこの部屋の管理者ではありません。権限を変更できません。", reply_to_id=account_id, reply_message_id=message_id)
             return "", 200
 
         # --- Other features follow ---
@@ -428,7 +444,7 @@ def chatwork_webhook():
                     reply_message = f"おみくじの結果は **{result}** です。"
                     send_message(room_id, reply_message, reply_to_id=account_id, reply_message_id=message_id)
             
-            elif "test" in cleaned_body:
+          elif "test" in cleaned_body:
                 logger.info("Test message received. Responding with current time.")
                 jst = timezone(timedelta(hours=9), 'JST')
                 now_jst = datetime.now(jst)
