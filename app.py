@@ -26,9 +26,6 @@ EMOJI_PATTERN = re.compile(
     r":\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|\(blush\)|:\^|\(inlove\)|:\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|:\^|\(sweat\)|\|\-\)|\]:D|\(talk\)|\(yawn\)|\(puke\)|\(emo\)|8-\||:\#|\(nod\)|\(shake\)|\(\^\^;\)|\(whew\)|\(clap\)|\(bow\)|\(roger\)|\(flex\)|\(dance\)|\(:/\)|\(gogo\)|\(think\)|\(please\)|\(quick\)|\(anger\)|\(devil\)|\(lightbulb\)|\(\*\)|\(h\)|\(F\)|\(cracker\)|\(eat\)|\(\^\)|\(coffee\)|\(beer\)|\(handshake\)|\(y\)"
 )
 
-# Chatworkの招待URLの正規表現
-INVITE_URL_PATTERN = re.compile(r"https:\/\/www\.chatwork.com\/g\/(?P<token>[a-zA-Z0-9]+)")
-
 # Bot service is starting...
 logger.info("Bot service is starting...")
 
@@ -77,6 +74,36 @@ def mark_as_read(room_id):
     except Exception as e:
         logger.error(f"Failed to mark messages as read: {e}", exc_info=True)
         return False
+
+def get_rooms():
+    """
+    ボットが参加しているすべての部屋のリストを取得する
+    """
+    headers = {
+        "X-ChatWorkToken": CHATWORK_API_TOKEN
+    }
+    try:
+        response = requests.get("https://api.chatwork.com/v2/rooms", headers=headers)
+        response.raise_for_status()
+        logger.info("Successfully fetched the list of all rooms.")
+        return response.json()
+    except requests.exceptions.HTTPError as err:
+        logger.error(f"HTTP Error occurred while fetching room list: {err.response.status_code} - {err.response.text}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to get room list: {e}", exc_info=True)
+        return None
+
+def mark_all_rooms_as_read():
+    """
+    ボットが参加しているすべての部屋の未読数を0にする
+    """
+    rooms = get_rooms()
+    if rooms:
+        for room in rooms:
+            room_id = room.get("room_id")
+            if room_id:
+                mark_as_read(room_id)
 
 def get_room_info(room_id):
     """
@@ -184,34 +211,13 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         logger.error(f"Failed to change room permissions: {e}", exc_info=True)
         return False
 
-def accept_group_chat_invitation(invite_token):
-    """
-    指定された招待トークンを使ってグループチャットに参加する
-    """
-    url = f"https://api.chatwork.com/v2/rooms"
-    headers = {
-        "X-ChatWorkToken": CHATWORK_API_TOKEN,
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-    payload = {
-        "invite_token": invite_token
-    }
-    
-    try:
-        response = requests.post(url, headers=headers, data=payload)
-        response.raise_for_status()
-        logger.info(f"Successfully joined new room with token {invite_token}. Response: {response.text}")
-        return True
-    except requests.exceptions.HTTPError as err:
-        logger.error(f"HTTP Error occurred while accepting invitation: {err.response.status_code} - {err.response.text}")
-        return False
-    except Exception as e:
-        logger.error(f"Failed to accept invitation: {e}", exc_info=True)
-        return False
-
 @app.route("/", methods=["POST"])
 def chatwork_webhook():
     logger.info(f"Received a new webhook request. Headers: {request.headers}")
+    
+    # すべての部屋のメッセージを常に既読にする
+    mark_all_rooms_as_read()
+
     try:
         data = request.json
         logger.info(f"Received JSON data: {json.dumps(data, indent=2)}")
@@ -226,23 +232,6 @@ def chatwork_webhook():
         room_id = webhook_event.get("room_id")
         message_id = webhook_event.get("message_id")
         
-        # /roominfo 以外のメッセージは常に既読にする
-        if not message_body.startswith("/roominfo"):
-            mark_as_read(room_id)
-
-        # 特定の部屋ID (365406836) での招待URL処理
-        if str(room_id) == "365406836":
-            match = INVITE_URL_PATTERN.search(message_body)
-            if match:
-                invite_token = match.group("token")
-                logger.info(f"Invitation URL detected in room {room_id}. Token: {invite_token}. Attempting to join the new room.")
-                if accept_group_chat_invitation(invite_token):
-                    # 応答メッセージは送信せず、ログのみに出力
-                    logger.info("新しい部屋に参加しました✅")
-                else:
-                    logger.error("招待の承認に失敗しました。URLが有効か、botがすでにその部屋にいるか確認してください。")
-                return "", 200
-
         cleaned_body = clean_message_body(message_body)
         
         logger.info(f"Message details: Account ID: {account_id}, Room ID: {room_id}, Cleaned body: '{cleaned_body}'")
