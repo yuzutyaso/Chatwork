@@ -220,7 +220,7 @@ def chatwork_webhook():
         cleaned_body = clean_message_body(message_body)
         
         logger.info(f"Message details: Account ID: {account_id}, Room ID: {room_id}, Cleaned body: '{cleaned_body}'")
-
+        
         # /roominfo 以外のメッセージは常に既読にする
         if not cleaned_body.startswith("/roominfo"):
             mark_as_read(room_id)
@@ -241,14 +241,14 @@ def chatwork_webhook():
                 room_info = get_room_info(target_room_id)
                 if room_info:
                     room_name = room_info.get("name", "不明な部屋名")
-                    messages_count = room_info.get("message_num", 0) # message_numを直接利用
+                    messages_count = room_info.get("message_num", 0)
                     members_count = get_room_members_count(target_room_id)
                     admins_count = get_admin_count(target_room_id)
 
                     info_message = (
                         f"【部屋情報】\n"
                         f"部屋名: {room_name}\n"
-                        f"メッセージ数: {messages_count}件\n" # 注釈を削除
+                        f"メッセージ数: {messages_count}件\n"
                         f"メンバー数: {members_count}人\n"
                         f"管理者数: {admins_count}人"
                     )
@@ -278,14 +278,22 @@ def chatwork_webhook():
                     send_message(room_id, "現在、管理者権限のユーザーはいません。", reply_to_id=account_id, reply_message_id=message_id)
 
             elif cleaned_body == "/member":
-                logger.info("Member command received. Fetching member members.")
-                member_members = get_permission_list(room_id, "member")
-                if member_members:
-                    names = [member["name"] for member in member_members]
-                    message = "【メンバー権限ユーザー】\n" + "\n".join(names)
-                    send_message(room_id, message, reply_to_id=account_id, reply_message_id=message_id)
+                logger.info("Member command received.")
+                
+                # ユーザーの権限をチェック
+                members = get_room_members(room_id)
+                user_role = next((m["role"] for m in members if str(m["account_id"]) == str(account_id)), None)
+
+                if user_role == "admin":
+                    member_members = get_permission_list(room_id, "member")
+                    if member_members:
+                        names = [member["name"] for member in member_members]
+                        message = "【メンバー権限ユーザー】\n" + "\n".join(names)
+                        send_message(room_id, message, reply_to_id=account_id, reply_message_id=message_id)
+                    else:
+                        send_message(room_id, "現在、メンバー権限のユーザーはいません。", reply_to_id=account_id, reply_message_id=message_id)
                 else:
-                    send_message(room_id, "現在、メンバー権限のユーザーはいません。", reply_to_id=account_id, reply_message_id=message_id)
+                    send_message(room_id, "このコマンドは管理者のみ実行可能です。", reply_to_id=account_id, reply_message_id=message_id)
             
             elif cleaned_body.startswith("/delete"):
                 logger.info("Delete command received.")
