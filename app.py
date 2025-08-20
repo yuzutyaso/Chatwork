@@ -85,6 +85,18 @@ def mark_room_as_read(room_id):
         logger.error(f"Failed to mark room {room_id} as read: {e}")
         return False
 
+def is_bot_admin(room_id):
+    """Botが指定された部屋で管理者権限を持っているか確認する。"""
+    members = get_room_members(room_id)
+    if members:
+        return any(str(member["account_id"]) == str(MY_ACCOUNT_ID) and member["role"] == "admin" for member in members)
+    return False
+
+def clean_message_body(body):
+    """メッセージ本文からChatwork固有のタグを削除する。"""
+    body = re.sub(r'\[rp aid=\d+ to=\d+-\d+\]|\[piconname:\d+\].*?さん|\[To:\d+\]', '', body)
+    return body.strip()
+
 # --- Supabaseデータベース関連の関数 ---
 def update_message_count_in_db(date, account_id, account_name):
     """Supabaseでメッセージ数を更新する。"""
@@ -234,19 +246,23 @@ def chatwork_webhook():
         webhook_event = data.get("webhook_event")
         room_id = webhook_event.get("room_id")
         
-        # Webhookイベントにroom_idが含まれていない場合は無視
         if not room_id:
             logger.info("Received a non-webhook event. Ignoring.")
             return "", 200
 
-        mark_room_as_read(room_id)
-
         message_body = webhook_event.get("body")
         account_id = webhook_event.get("account_id")
         message_id = webhook_event.get("message_id")
-        cleaned_body = clean_message_body(message_body)
+        
+        # Bot自身のメッセージには反応しない
+        if str(account_id) == str(MY_ACCOUNT_ID):
+            logger.info("Ignoring webhook event from myself.")
+            return "", 200
 
-        if str(account_id) == str(MY_ACCOUNT_ID): return "", 200
+        # 全ての部屋でメッセージを既読にする
+        mark_room_as_read(room_id)
+        
+        cleaned_body = clean_message_body(message_body)
 
         # Supabaseの閲覧者リストにユーザーがいるか確認し、いれば即座に閲覧者に変更
         if is_readonly_user_in_db(account_id) and is_bot_admin(room_id):
@@ -316,7 +332,6 @@ def chatwork_webhook():
 
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
-        # エラーメッセージを送信
         if 'room_id' in locals() and 'account_id' in locals() and 'message_id' in locals():
             send_message(room_id, "処理中にエラーが発生しました。", reply_to_id=account_id, reply_message_id=message_id)
 
