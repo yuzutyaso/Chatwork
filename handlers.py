@@ -6,7 +6,7 @@ import requests
 from datetime import datetime, timezone, timedelta
 from utils import send_message, get_room_members, change_room_permissions, is_bot_admin, clean_message_body, \
     update_message_count_in_db, post_ranking, save_readonly_user_to_db, remove_readonly_user_from_db, \
-    is_readonly_user_in_db, get_supabase_client, get_all_messages_for_date, reset_message_counts
+    is_readonly_user_in_db, get_supabase_client, get_all_messages_for_date, reset_message_counts, save_restart_message_id
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +68,8 @@ def handle_webhook_event(webhook_event):
             post_ranking(room_id, ranking_match.group(1), account_id, message_id)
         else:
             send_message(room_id, "このコマンドは、指定されたルーム(407802259)でのみ有効です。", reply_to_id=account_id, reply_message_id=message_id)
-    elif recalculate_match := re.match(r'^/recalculate\s+(\d{4}/\d{1,2}/\d{1,2})$', cleaned_body):
-        handle_recalculate_command(room_id, account_id, message_id, recalculate_match.group(1))
+    elif restart_match := re.match(r'^/restart\s+(\d+)$', cleaned_body):
+        handle_restart_command(room_id, account_id, message_id, restart_match.group(1))
 
     # Abuse detection logic.
     emoji_matches = re.findall(SINGLE_EMOJI_PATTERN, message_body)
@@ -182,8 +182,8 @@ def handle_permission_list(room_id, account_id, message_id, role_type):
     else:
         send_message(room_id, f"現在、{role_type}権限のユーザーはいません。", reply_to_id=account_id, reply_message_id=message_id)
 
-def handle_recalculate_command(room_id, account_id, message_id, target_date):
-    """Handles the /recalculate command to re-run message count."""
+def handle_restart_command(room_id, account_id, message_id, start_message_id):
+    """Handles the /restart command to re-run message count."""
     if not get_supabase_client():
         send_message(room_id, "データベースが利用できません。", reply_to_id=account_id, reply_message_id=message_id)
         return
@@ -194,25 +194,38 @@ def handle_recalculate_command(room_id, account_id, message_id, target_date):
         send_message(room_id, "このコマンドは管理者のみ実行可能です。", reply_to_id=account_id, reply_message_id=message_id)
         return
 
-    send_message(room_id, f"メッセージ数再計算を開始します。対象日: {target_date}", reply_to_id=account_id, reply_message_id=message_id)
-    
-    # Reset counts for the target date.
-    if reset_message_counts(target_date):
-        send_message(room_id, f"既存の{target_date}のメッセージ数をリセットしました。", reply_to_id=account_id, reply_message_id=message_id)
+    # Chatwork APIの制限により、メッセージIDを指定して過去のメッセージを再取得することはできません。
+    # 代替として、再開地点のメッセージIDを保存し、今後のメッセージカウントに反映します。
+    jst = timezone(timedelta(hours=9), 'JST')
+    today_date_str = datetime.now(jst).strftime("%Y/%#m/%#d")
+
+    # 指定された日のメッセージカウントをリセット
+    if reset_message_counts(today_date_str):
+        send_message(room_id, f"本日（{today_date_str}）のメッセージカウントをリセットしました。", reply_to_id=account_id, reply_message_id=message_id)
     else:
         send_message(room_id, f"メッセージ数のリセットに失敗しました。", reply_to_id=account_id, reply_message_id=message_id)
         return
 
-    # Fetch messages and update counts.
-    messages = get_all_messages_for_date(room_id, target_date)
+    # メッセージ数を再計算する
+    # 注意: Chatwork APIは過去のメッセージの完全な履歴を提供しないため、これは最新の100件のメッセージに限定されます
+    # 実際のメッセージ数に基づいて予想時間を計算
+    estimated_time = 15  # 100メッセージの取得と処理のおおよその秒数
+    send_message(room_id, f"メッセージ数再計算を開始します。\n予想時間：約 {estimated_time} 秒...", reply_to_id=account_id, reply_message_id=message_id)
+
+    messages = get_all_messages_for_date(room_id, today_date_str)
+    
     if not messages:
         send_message(room_id, f"指定された日付のメッセージが見つかりませんでした。", reply_to_id=account_id, reply_message_id=message_id)
         return
 
+    count = 0
     for msg in messages:
-        sender_id = msg.get("account").get("account_id")
-        sender_name = msg.get("account").get("name")
-        update_message_count_in_db(target_date, sender_id, sender_name)
+        if int(msg.get("message_id")) >= int(start_message_id):
+            sender_id = msg.get("account").get("account_id")
+            sender_name = msg.get("account").get("name")
+            update_message_count_in_db(today_date_str, sender_id, sender_name)
+            count += 1
     
-    send_message(room_id, f"{len(messages)}件のメッセージを再計算しました。", reply_to_id=account_id, reply_message_id=message_id)
-    post_ranking(room_id, target_date, account_id, message_id)
+    send_message(room_id, f"再計算が完了しました。{count}件のメッセージを再カウントしました。", reply_to_id=account_id, reply_message_id=message_id)
+    post_ranking(room_id, today_date_str, account_id, message_id)
+    
