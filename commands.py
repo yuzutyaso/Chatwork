@@ -206,6 +206,27 @@ def time_report_command(room_id, message_id, account_id, message_body):
     else:
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /時報 OK, /時報 NO, /時報 1h, /時報 30m, /時報 1h 30m")
 
+def delete_command(room_id, message_id, account_id, message_body):
+    """/削除 コマンドの処理（返信されたメッセージを削除）"""
+    match = re.search(r'\[rp aid=(\d+)\s+to=\d+-(\d+)\]', message_body)
+    if not match:
+        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは返信として使用してください。")
+        return
+
+    target_message_id = match.group(2)
+    
+    try:
+        response = requests.post(
+            f"https://api.chatwork.com/v2/rooms/{room_id}/messages/{target_message_id}/deletion",
+            headers={"X-ChatWorkToken": CHATWORK_API_TOKEN}
+        )
+        if response.status_code == 204:
+            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nメッセージを削除しました。")
+        else:
+            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nメッセージの削除に失敗しました。ステータスコード: {response.status_code}")
+    except Exception as e:
+        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nメッセージ削除中にエラーが発生しました: {e}")
+
 def omikuji_command(room_id, message_id, account_id, message_body):
     """おみくじ コマンドの処理"""
     today = datetime.now().date()
@@ -301,5 +322,6 @@ COMMANDS = {
     "/test": test_command, "/sorry": sorry_command, "/roominfo": roominfo_command,
     "/say": say_command, "/weather": weather_command, "/whoami": whoami_command,
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
+    "/削除": delete_command,
     "おみくじ": omikuji_command, "/ranking": ranking_command,
-}
+            }
