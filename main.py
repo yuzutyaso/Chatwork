@@ -12,7 +12,7 @@ from pytz import timezone
 from db import supabase
 from commands import COMMANDS
 from utils import is_admin, send_chatwork_message, change_user_role
-from jobs import hourly_report_job
+from jobs import hourly_report_job, ranking_post_job
 
 # 環境変数の読み込み
 load_dotenv()
@@ -44,6 +44,20 @@ def chatwork_callback():
         if str(account_id) == str(BOT_ACCOUNT_ID):
             return jsonify({'status': 'ok'})
 
+        # ユーザーごとのメッセージ数カウント
+        today = datetime.now().date().isoformat()
+        response_user = supabase.table('user_message_counts').select('message_count', 'last_message_id').eq('user_id', account_id).eq('room_id', room_id).eq('message_date', today).execute()
+        if response_user.data:
+            current_count = response_user.data[0]['message_count']
+            last_message_id_str = response_user.data[0].get('last_message_id')
+
+            last_message_id = int(last_message_id_str) if last_message_id_str is not None else None
+
+            if last_message_id is None or message_id > last_message_id:
+                supabase.table('user_message_counts').update({"message_count": current_count + 1, "last_message_id": message_id}).eq('user_id', account_id).eq('room_id', room_id).eq('message_date', today).execute()
+        else:
+            supabase.table('user_message_counts').insert({"user_id": account_id, "room_id": room_id, "message_date": today, "message_count": 1, "last_message_id": message_id}).execute()
+        
         # コマンドの判定と実行
         for command_name, command_func in COMMANDS.items():
             if command_name == "おみくじ":
@@ -87,6 +101,7 @@ def chatwork_callback():
 # スケジューラースレッドの開始
 jst_tz = timezone('Asia/Tokyo')
 schedule.every().hour.at(":00", tz=jst_tz).do(hourly_report_job)
+schedule.every().day.at("00:00", tz=jst_tz).do(ranking_post_job)
 
 def run_scheduler():
     while True:
