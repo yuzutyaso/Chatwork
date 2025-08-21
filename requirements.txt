@@ -3,3 +3,4 @@ requests
 python-dotenv
 supabase
 schedule
+gunicorn
