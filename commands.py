@@ -190,24 +190,29 @@ def omikuji_command(room_id, message_id, account_id, message_body):
     """おみくじ コマンドの処理"""
     today = datetime.now().date()
     
-    # ユーザーIDを文字列に変換してSupabaseに渡す
-    response = supabase.table('omikuji_history').select('last_drawn_date').eq('user_id', str(account_id)).execute()
-    data = response.data
+    # Supabaseのuser_idカラムがinteger型であることを前提に、str()に変換
+    user_id_str = str(account_id)
+    
+    try:
+        response = supabase.table('omikuji_history').select('last_drawn_date').eq('user_id', user_id_str).execute()
+        data = response.data
+    except Exception as e:
+        send_chatwork_message(room_id, f"データベースエラーが発生しました: {e}")
+        return
     
     if data and datetime.strptime(data[0]['last_drawn_date'], '%Y-%m-%d').date() == today:
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n今日のおみくじはすでに引きました。また明日試してくださいね！")
     else:
-        # 確率でおみくじの結果を決定
-        results = [
-            "大吉"] * 10 + ["中吉"] * 20 + ["小吉"] * 30 + ["吉"] * 20 + ["末吉"] * 10 + ["凶"] * 5 + ["大凶"] * 5
+        results = ["大吉"] * 10 + ["中吉"] * 20 + ["小吉"] * 30 + ["吉"] * 20 + ["末吉"] * 10 + ["凶"] * 5 + ["大凶"] * 5
         result = random.choice(results)
         
         if data:
-            supabase.table('omikuji_history').update({"last_drawn_date": today.isoformat()}).eq('user_id', str(account_id)).execute()
+            supabase.table('omikuji_history').update({"last_drawn_date": today.isoformat()}).eq('user_id', user_id_str).execute()
         else:
-            supabase.table('omikuji_history').insert({"user_id": str(account_id), "last_drawn_date": today.isoformat()}).execute()
+            supabase.table('omikuji_history').insert({"user_id": user_id_str, "last_drawn_date": today.isoformat()}).execute()
         
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nあなたのおみくじは... **{result}** です！")
+
 
 def ranking_command(room_id, message_id, account_id, message_body):
     """/ranking all または /ranking yyyy/mm/dd コマンドの処理"""
@@ -220,7 +225,6 @@ def ranking_command(room_id, message_id, account_id, message_body):
             message = "本日のメッセージ数ランキング (全ルーム)\n---\n"
             for i, item in enumerate(response.data):
                 try:
-                    # ルームIDから部屋名を取得
                     room_info = requests.get(f"https://api.chatwork.com/v2/rooms/{item['room_id']}", headers={"X-ChatWorkToken": CHATWORK_API_TOKEN}).json()
                     room_name = room_info.get('name', '取得失敗')
                     message += f"{i+1}位: {room_name} - {item['message_count']}メッセージ\n"
@@ -241,7 +245,6 @@ def ranking_command(room_id, message_id, account_id, message_body):
         response = supabase.table('user_message_counts').select('*').eq('message_date', ranking_date).eq('room_id', room_id).order('message_count', desc=True).limit(10).execute()
         
         if response.data:
-            # ルームメンバーリストを取得してユーザーIDと名前をマッピング
             members = get_chatwork_members(room_id)
             user_names = {member['account_id']: member['name'] for member in members}
             
@@ -259,4 +262,4 @@ commands = {
     "/say": say_command, "/weather": weather_command, "/whoami": whoami_command,
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
     "おみくじ": omikuji_command, "/ranking": ranking_command,
-    }
+                              }
