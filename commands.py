@@ -171,7 +171,9 @@ def time_report_command(room_id, message_id, account_id, message_body):
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
         return
 
-    match_minutes = re.search(r'/時報\s*(\d+)\s*分', message_body)
+    # 時間と分を正規表現で抽出
+    match_h = re.search(r'(\d+)\s*h', message_body)
+    match_m = re.search(r'(\d+)\s*m', message_body)
     
     if "/時報 OK" in message_body:
         try:
@@ -185,21 +187,24 @@ def time_report_command(room_id, message_id, account_id, message_body):
             send_chatwork_message(room_id, "このルームの毎時お知らせを解除しました。")
         except Exception as e:
             send_chatwork_message(room_id, f"解除中にエラーが発生しました: {e}")
-    elif match_minutes:
-        minutes = int(match_minutes.group(1))
-        if minutes > 0 and minutes <= 60:
+    elif match_h or match_m:
+        hours = int(match_h.group(1)) if match_h else 0
+        minutes = int(match_m.group(1)) if match_m else 0
+        
+        total_minutes = hours * 60 + minutes
+        
+        if total_minutes > 0:
             try:
-                # 既に存在する場合は更新、存在しない場合は挿入
-                response = supabase.table('hourly_report_rooms').update({"interval_minutes": minutes}).eq('room_id', room_id).execute()
+                response = supabase.table('hourly_report_rooms').update({"interval_minutes": total_minutes}).eq('room_id', room_id).execute()
                 if not response.data:
-                    supabase.table('hourly_report_rooms').insert({"room_id": room_id, "interval_minutes": minutes}).execute()
-                send_chatwork_message(room_id, f"このルームに毎 {minutes}分ごとのお知らせを投稿するように設定しました。")
+                    supabase.table('hourly_report_rooms').insert({"room_id": room_id, "interval_minutes": total_minutes}).execute()
+                send_chatwork_message(room_id, f"このルームに毎 {hours}時間 {minutes}分ごとのお知らせを投稿するように設定しました。")
             except Exception as e:
                 send_chatwork_message(room_id, f"設定中にエラーが発生しました: {e}")
         else:
-            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n分数は1から60の間で指定してください。")
+            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n時間または分は1以上で指定してください。")
     else:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /時報 OK または /時報 NO または /時報 15分")
+        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /時報 OK, /時報 NO, /時報 1h, /時報 30m, /時報 1h 30m")
 
 def omikuji_command(room_id, message_id, account_id, message_body):
     """おみくじ コマンドの処理"""
