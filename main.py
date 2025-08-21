@@ -30,6 +30,9 @@ EMOJIS = [
 # Flaskアプリケーションの初期化
 app = Flask(__name__)
 
+# 管理者権限が必要なコマンドリスト
+ADMIN_COMMANDS = ["/say", "/echo", "/削除", "/時報", "/recount"]
+
 # --- メッセージ処理を関数に分離 ---
 def handle_message(room_id, message_id, account_id, message_body):
     """
@@ -47,27 +50,28 @@ def handle_message(room_id, message_id, account_id, message_body):
         if last_message_id is None or int(message_id) > last_message_id:
             supabase.table('user_message_counts').update({"message_count": current_count + 1, "last_message_id": message_id}).eq('user_id', account_id).eq('room_id', room_id).eq('message_date', today).execute()
     else:
-        # 新しい日付のデータが存在しない場合は、新規レコードを挿入する
         supabase.table('user_message_counts').insert({"user_id": account_id, "room_id": room_id, "message_date": today, "message_count": 1, "last_message_id": message_id}).execute()
 
-    # コマンドの判定と実行 (match-case文を使用)
+    # コマンドの判定
     parts = message_body.split()
     command_name = parts[0] if parts else ""
     
     # コマンドの実行
     if command_name in COMMANDS:
-        command_func = COMMANDS[command_name]
-        
+        # 管理者権限が必要なコマンドかチェック
+        if command_name in ADMIN_COMMANDS and not is_admin(room_id, account_id):
+            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
+            return
+            
         # timerコマンドはスレッドで実行
         if command_name == "/timer":
-            thread = threading.Thread(target=command_func, args=(room_id, message_id, account_id, message_body))
+            thread = threading.Thread(target=COMMANDS[command_name], args=(room_id, message_id, account_id, message_body))
             thread.start()
         else:
-            command_func(room_id, message_id, account_id, message_body)
+            COMMANDS[command_name](room_id, message_id, account_id, message_body)
     
     # 特殊なメッセージの処理
     else:
-        # [toall]と絵文字の判定
         is_admin_user = is_admin(room_id, account_id)
         if "[toall]" in message_body:
             if is_admin_user:
@@ -95,11 +99,9 @@ def chatwork_callback():
         account_id = data['webhook_event']['account_id']
         message_body = data['webhook_event']['body']
         
-        # ボット自身の投稿は無視する
         if str(account_id) == str(BOT_ACCOUNT_ID):
             return jsonify({'status': 'ok'})
 
-        # メッセージ処理関数を呼び出す
         handle_message(room_id, message_id, account_id, message_body)
     
     return jsonify({'status': 'ok'})
@@ -115,15 +117,12 @@ def run_scheduler():
 
 # --- Flaskアプリケーションの実行 ---
 if __name__ == '__main__':
-    # スケジューラを別のスレッドで開始
     scheduler_thread = threading.Thread(target=run_scheduler)
     scheduler_thread.start()
 
-    # スケジュールされたジョブを登録
     jst_tz = timezone('Asia/Tokyo')
     schedule.every().day.at("00:00", tz=jst_tz).do(ranking_post_job)
     schedule.every(1).minutes.do(time_report_job)
     
-    # Flaskサーバーを起動
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
