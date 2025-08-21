@@ -43,22 +43,31 @@ def chatwork_callback():
         if str(account_id) == str(BOT_ACCOUNT_ID):
             return jsonify({'status': 'ok'})
 
-        # メッセージカウントのロジック
-        today = datetime.now().date().isoformat()
-        response_user = supabase.table('user_message_counts').select('message_count').eq('user_id', account_id).eq('room_id', room_id).eq('message_date', today).execute()
-        if response_user.data:
-            current_count = response_user.data[0]['message_count']
-            supabase.table('user_message_counts').update({"message_count": current_count + 1}).eq('user_id', account_id).eq('room_id', room_id).eq('message_date', today).execute()
-        else:
-            supabase.table('user_message_counts').insert({"user_id": account_id, "room_id": room_id, "message_date": today, "message_count": 1}).execute()
-
-        response_room = supabase.table('room_message_counts').select('message_count').eq('room_id', room_id).execute()
+        # ルームごとのメッセージ数カウント
+        response_room = supabase.table('room_message_counts').select('message_count', 'last_message_id').eq('room_id', room_id).execute()
         if response_room.data:
             current_count = response_room.data[0]['message_count']
-            supabase.table('room_message_counts').update({"message_count": current_count + 1}).eq('room_id', room_id).execute()
+            last_message_id = response_room.data[0].get('last_message_id')
+            
+            # 最新のメッセージIDが既存のIDより大きい場合のみカウントを更新
+            if last_message_id is None or message_id > last_message_id:
+                supabase.table('room_message_counts').update({"message_count": current_count + 1, "last_message_id": message_id}).eq('room_id', room_id).execute()
         else:
-            supabase.table('room_message_counts').insert({"room_id": room_id, "message_count": 1}).execute()
+            supabase.table('room_message_counts').insert({"room_id": room_id, "message_count": 1, "last_message_id": message_id}).execute()
 
+        # ユーザーごとのメッセージ数カウント
+        today = datetime.now().date().isoformat()
+        response_user = supabase.table('user_message_counts').select('message_count', 'last_message_id').eq('user_id', account_id).eq('room_id', room_id).eq('message_date', today).execute()
+        if response_user.data:
+            current_count = response_user.data[0]['message_count']
+            last_message_id = response_user.data[0].get('last_message_id')
+            
+            # 最新のメッセージIDが既存のIDより大きい場合のみカウントを更新
+            if last_message_id is None or message_id > last_message_id:
+                supabase.table('user_message_counts').update({"message_count": current_count + 1, "last_message_id": message_id}).eq('user_id', account_id).eq('room_id', room_id).eq('message_date', today).execute()
+        else:
+            supabase.table('user_message_counts').insert({"user_id": account_id, "room_id": room_id, "message_date": today, "message_count": 1, "last_message_id": message_id}).execute()
+        
         # コマンドの判定と実行
         for command_name, command_func in commands.items():
             if command_name == "おみくじ":
