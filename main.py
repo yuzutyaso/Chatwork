@@ -12,7 +12,7 @@ from pytz import timezone
 from db import supabase
 from commands import COMMANDS
 from utils import is_admin, send_chatwork_message, change_user_role
-from jobs import hourly_report_job, ranking_post_job
+from jobs import time_report_job, ranking_post_job
 
 # 環境変数の読み込み
 load_dotenv()
@@ -100,7 +100,7 @@ def chatwork_callback():
 
 # スケジューラースレッドの開始
 jst_tz = timezone('Asia/Tokyo')
-schedule.every().hour.at(":00", tz=jst_tz).do(hourly_report_job)
+schedule.every(1).minutes.do(time_report_job)
 schedule.every().day.at("00:00", tz=jst_tz).do(ranking_post_job)
 
 def run_scheduler():
