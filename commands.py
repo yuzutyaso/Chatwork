@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 from db import supabase
-from utils import send_chatwork_message, get_chatwork_members
+from utils import send_chatwork_message, get_chatwork_members, is_admin
 
 # 環境変数の読み込み
 load_dotenv()
@@ -164,7 +164,13 @@ def timer_command(room_id, message_id, account_id, message_body):
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nタイマー時間は1秒以上にしてください。")
 
 def time_report_command(room_id, message_id, account_id, message_body):
-    """/時報 コマンドの処理"""
+    """時報コマンドの処理（管理者のみ）"""
+    
+    # ユーザーが管理者であるかを確認
+    if not is_admin(room_id, account_id):
+        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
+        return
+
     if "/時報 OK" in message_body:
         try:
             supabase.table('hourly_report_rooms').insert({"room_id": room_id}).execute()
@@ -252,4 +258,4 @@ commands = {
     "/say": say_command, "/weather": weather_command, "/whoami": whoami_command,
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
     "おみくじ": omikuji_command, "/ranking": ranking_command,
-        }
+            }
