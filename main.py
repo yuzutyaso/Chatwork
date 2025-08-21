@@ -7,6 +7,7 @@ from flask import Flask, request, jsonify
 from datetime import datetime
 from dotenv import load_dotenv
 from supabase import create_client, Client
+from pytz import timezone
 
 from db import supabase
 from commands import commands
@@ -102,8 +103,9 @@ def chatwork_callback():
     return jsonify({'status': 'ok'})
 
 # スケジューラースレッドの開始
-schedule.every().hour.at(":00").do(hourly_report_job)
-schedule.every().day.at("00:00").do(ranking_post_job)
+jst_tz = timezone('Asia/Tokyo')
+schedule.every().hour.at(":00", tz=jst_tz).do(hourly_report_job)
+schedule.every().day.at("00:00", tz=jst_tz).do(ranking_post_job)
 
 def run_scheduler():
     while True:
