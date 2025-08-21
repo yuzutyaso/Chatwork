@@ -12,6 +12,7 @@ CHATWORK_API_TOKEN = os.environ.get("CHATWORK_API_TOKEN")
 MY_ACCOUNT_ID = os.environ.get("MY_ACCOUNT_ID")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
 supabase = None
 def get_supabase_client():
@@ -213,3 +214,49 @@ def is_readonly_user_in_db(account_id):
     except Exception as e:
         logger.error(f"Supabase check for readonly_users failed: {e}")
         return False
+
+def get_weather_info(city_name):
+    """Gets weather information from OpenWeatherMap."""
+    base_url = "http://api.openweathermap.org/data/2.5/weather"
+    params = {
+        "q": city_name,
+        "appid": OPENWEATHER_API_KEY,
+        "units": "metric", # Celsius
+        "lang": "ja"
+    }
+    try:
+        response = requests.get(base_url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        main_info = data["main"]
+        weather_info = data["weather"][0]
+        
+        weather_description = weather_info["description"]
+        temp = main_info["temp"]
+        humidity = main_info["humidity"]
+        
+        return f"【{city_name}の天気】\n天気: {weather_description}\n気温: {temp}°C\n湿度: {humidity}%"
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to get weather data: {e}")
+        return f"天気情報が取得できませんでした。都市名を確認してください。"
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return "天気情報の取得中にエラーが発生しました。"
+
+def get_user_info(target_user_id):
+    """Gets user information from the Chatwork API."""
+    headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
+    try:
+        response = requests.get(f"https://api.chatwork.com/v2/my/account", headers=headers)
+        response.raise_for_status()
+        my_account_info = response.json()
+        
+        # Simplified for now, as direct user lookup is not possible without advanced permissions.
+        # This will only return info if the target is the bot itself.
+        if str(my_account_info["account_id"]) == str(target_user_id):
+            return f"【ユーザー情報】\n名前: {my_account_info['name']}\nアカウントID: {my_account_info['account_id']}"
+        else:
+            return f"ユーザーID {target_user_id} の情報を取得できませんでした。権限を確認してください。"
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to get user info: {e}")
+        return "ユーザー情報の取得中にエラーが発生しました。"
