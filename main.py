@@ -6,6 +6,7 @@ import threading
 from flask import Flask, request, jsonify
 from datetime import datetime
 from dotenv import load_dotenv
+from supabase import create_client, Client
 
 from db import supabase
 from commands import commands
@@ -60,7 +61,11 @@ def chatwork_callback():
 
         # コマンドの判定と実行
         for command_name, command_func in commands.items():
-            if message_body.startswith(command_name):
+            if command_name == "おみくじ":
+                if command_name in message_body:
+                    command_func(room_id, message_id, account_id, message_body)
+                    return jsonify({'status': 'ok'})
+            elif message_body.startswith(command_name):
                 if command_name == "/timer":
                     thread = threading.Thread(target=command_func, args=(room_id, message_id, account_id, message_body))
                     thread.start()
