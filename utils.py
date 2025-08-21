@@ -242,21 +242,3 @@ def get_weather_info(city_name):
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return "天気情報の取得中にエラーが発生しました。"
-
-def get_user_info(target_user_id):
-    """Gets user information from the Chatwork API."""
-    headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
-    try:
-        response = requests.get(f"https://api.chatwork.com/v2/my/account", headers=headers)
-        response.raise_for_status()
-        my_account_info = response.json()
-        
-        # Simplified for now, as direct user lookup is not possible without advanced permissions.
-        # This will only return info if the target is the bot itself.
-        if str(my_account_info["account_id"]) == str(target_user_id):
-            return f"【ユーザー情報】\n名前: {my_account_info['name']}\nアカウントID: {my_account_info['account_id']}"
-        else:
-            return f"ユーザーID {target_user_id} の情報を取得できませんでした。権限を確認してください。"
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to get user info: {e}")
-        return "ユーザー情報の取得中にエラーが発生しました。"
