@@ -27,7 +27,7 @@ def time_report_job():
             
             # 現在の分が設定間隔の倍数である場合にメッセージを投稿
             if current_minute % interval == 0:
-                message = f"現在時刻は {now_jst.strftime('%H:%M')} です。今日も一日頑張りましょう！"
+                message = f"現在時刻は {now_jst.strftime('%H:%M')} です。ズレてたら報告お願いします🙇"
                 send_chatwork_message(room_id, message)
 
     except Exception as e:
@@ -43,7 +43,7 @@ def ranking_post_job():
         room_ids = list(set([item['room_id'] for item in all_rooms_response.data]))
 
         # 日付変更のメッセージを投稿
-        new_day_message = "日付が変わりました。新しい日を頑張りましょう！"
+        new_day_message = "日付が変わっちゃったね！！"
         for room_id in room_ids:
             send_chatwork_message(room_id, new_day_message)
 
