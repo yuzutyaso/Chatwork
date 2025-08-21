@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 from pytz import timezone
 
-from utils import send_chatwork_message
+from utils import send_message_to_chatwork
 from db import supabase
 
 # ChatWork APIトークンを環境変数から取得
