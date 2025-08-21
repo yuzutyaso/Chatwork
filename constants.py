@@ -3,6 +3,7 @@ import os
 # Chatwork API
 CHATWORK_API_TOKEN = os.environ.get("CHATWORK_API_TOKEN")
 MY_ACCOUNT_ID = os.environ.get("MY_ACCOUNT_ID")
+REPORT_ROOM_ID = os.environ.get("REPORT_ROOM_ID")
 
 # Supabase
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
