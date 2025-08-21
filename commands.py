@@ -208,12 +208,12 @@ def time_report_command(room_id, message_id, account_id, message_body):
 
 def delete_command(room_id, message_id, account_id, message_body):
     """/削除 コマンドの処理（返信されたメッセージを削除）"""
-    match = re.search(r'\[rp aid=(\d+)\s+to=\d+-(\d+)\]', message_body)
+    match = re.search(r'\[rp aid=\d+ to=\d+-(\d+)\]', message_body)
     if not match:
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは返信として使用してください。")
         return
 
-    target_message_id = match.group(2)
+    target_message_id = match.group(1)
     
     try:
         response = requests.post(
