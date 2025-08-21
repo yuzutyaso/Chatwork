@@ -9,7 +9,9 @@ from utils import (
     clean_message_body, update_message_count_in_db, post_ranking,
     save_readonly_user_to_db, remove_readonly_user_from_db,
     is_readonly_user_in_db, get_supabase_client, reset_message_counts,
-    get_weather_info
+    get_weather_info, update_room_info_in_db,
+    get_all_room_info_from_db, get_message_count_for_ranking,
+    update_last_message_id, get_last_message_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -17,7 +19,7 @@ logger = logging.getLogger(__name__)
 # --- グローバル変数 ---
 omikuji_history = {}
 # Chatwork絵文字の正規表現パターン
-SINGLE_EMOJI_PATTERN = r"(?::\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|\(blush\)|:\^|\(inlove\)|\(sweat\)|\|\-\)|\]:D|\(talk\)|\(yawn\)|\(puke\)|\(emo\)|8-\||:\#|\(nod\)|\(shake\)|\(\^\^;\)|\(whew\)|\(clap\)|\(bow\)|\(roger\)|\(flex\)|\(dance\)|\(:/\)|\(gogo\)|\(think\)|\(please\)|\(quick\)|\(anger\)|\(devil\)|\(lightbulb\)|\(\*\)|\(h\)|\(F\)|\(cracker\)|\(eat\)|\(\^\)|\(coffee\)|\(beer\)|\(handshake\)|\(y\))"
+SINGLE_EMOJI_PATTERN = r"(?::\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|\(blush\)|:\^|\(inlove\)|\(sweat\)|\|\-\)|\]:D|\(talk\)|\(yawn\)|\(puke\)|8-\||:\#|\(nod\)|\(shake\)|\(\^\^;\)|\(whew\)|\(clap\)|\(bow\)|\(roger\)|\(flex\)|\(dance\)|\(:/\)|\(gogo\)|\(think\)|\(please\)|\(quick\)|\(anger\)|\(devil\)|\(lightbulb\)|\(\*\)|\(h\)|\(F\)|\(cracker\)|\(eat\)|\(\^\)|\(coffee\)|\(beer\)|\(handshake\)|\(y\))"
 MY_ACCOUNT_ID = os.environ.get("MY_ACCOUNT_ID")
 
 # 都道府県名をOpenWeatherMapの都市名にマッピングする辞書
@@ -88,6 +90,8 @@ def handle_webhook_event(webhook_event):
             send_message(room_id, "このコマンドは管理者のみ実行可能です。", reply_to_id=account_id, reply_message_id=message_id)
     elif "おみくじ" in cleaned_body:
         handle_omikuji_command(room_id, account_id, message_id)
+    elif cleaned_body == "/ranking all":
+        handle_ranking_all_command(room_id, account_id, message_id)
     elif ranking_match := re.match(r'^/ranking\s+(\d{4}/\d{1,2}/\d{1,2})$', cleaned_body):
         if str(room_id) == "407802259":
             post_ranking(room_id, ranking_match.group(1), account_id, message_id)
@@ -126,16 +130,20 @@ def handle_webhook_event(webhook_event):
                     send_message(room_id, "権限の変更に失敗しました。ボットに管理者権限があるか、権限の変更が許可されているか確認してください。", reply_to_id=account_id, reply_message_id=message_id)
         else:
             send_message(room_id, "私はこの部屋の管理者ではありません。権限を変更できません。", reply_to_id=account_id, reply_message_id=message_id)
-
+    
     # Message count logic.
-    if str(room_id) == "364321548":
-        jst = timezone(timedelta(hours=9), 'JST')
-        today_date_str = datetime.now(jst).strftime("%Y/%#m/%#d")
-        members = get_room_members(room_id)
-        if members:
-            account_name = next((m["name"] for m in members if str(m["account_id"]) == str(account_id)), "Unknown User")
-            update_message_count_in_db(today_date_str, account_id, account_name, message_id)
-
+    jst = timezone(timedelta(hours=9), 'JST')
+    today_date_str = datetime.now(jst).strftime("%Y/%#m/%#d")
+    
+    # 部屋情報を更新
+    members = get_room_members(room_id)
+    room_info = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}", headers={"X-ChatWorkToken": os.environ.get("CHATWORK_API_TOKEN")}).json()
+    room_name = room_info.get("name", "不明")
+    update_room_info_in_db(room_id, room_name, message_id)
+    
+    if members:
+        account_name = next((m["name"] for m in members if str(m["account_id"]) == str(account_id)), "Unknown User")
+        update_message_count_in_db(room_id, today_date_str, account_id, account_name, message_id)
 
 # --- Command Handler Functions ---
 def handle_test_command(room_id, account_id, message_id):
@@ -213,6 +221,34 @@ def handle_permission_list(room_id, account_id, message_id, role_type):
     else:
         send_message(room_id, f"現在、{role_type}権限のユーザーはいません。", reply_to_id=account_id, reply_message_id=message_id)
 
+def handle_ranking_all_command(room_id, account_id, message_id):
+    """Handles the /ranking all command for admins."""
+    if not get_supabase_client():
+        send_message(room_id, "データベースが利用できません。", reply_to_id=account_id, reply_message_id=message_id)
+        return
+
+    members = get_room_members(room_id)
+    if not members or not any(m["role"] == "admin" and str(m["account_id"]) == str(account_id) for m in members):
+        send_message(room_id, "このコマンドは管理者のみ実行可能です。", reply_to_id=account_id, reply_message_id=message_id)
+        return
+
+    jst = timezone(timedelta(hours=9), 'JST')
+    yesterday_date = (datetime.now(jst) - timedelta(days=1)).strftime("%Y/%#m/%#d")
+    
+    ranking = get_message_count_for_ranking(yesterday_date)
+    if not ranking:
+        send_message(room_id, f"昨日のメッセージ数ランキングはまだありません。", reply_to_id=account_id, reply_message_id=message_id)
+        return
+        
+    ranking_lines = [f"【昨日のメッセージ数ランキング】"]
+    for i, (room_id_str, count) in enumerate(ranking.items(), 1):
+        room_name = get_all_room_info_from_db().get(room_id_str, {}).get("room_name", f"部屋ID: {room_id_str}")
+        ranking_lines.append(f"{i}位: {room_name} ({count}件)")
+        if i >= 10:
+            break
+    
+    send_message(room_id, "\n".join(ranking_lines), reply_to_id=account_id, reply_message_id=message_id)
+
 def handle_restart_command(room_id, account_id, message_id):
     """
     Handles the /restart command.
@@ -259,7 +295,8 @@ def handle_help_command(room_id, account_id, message_id):
     /blacklist - 閲覧者リストを表示
     /admin - 管理者リストを表示
     /member - メンバーリストを表示
-    /ranking [YYYY/MM/DD] - 指定日のランキングを表示
+    /ranking all - 昨日の全部屋のメッセージ数ランキングを表示 (管理者専用)
+    /ranking [YYYY/MM/DD] - 指定日のランキングを表示 (特定ルームのみ)
     /restart - 当日のメッセージカウントをリセット (管理者専用)
     /say [メッセージ] - ボットがメッセージを投稿 (管理者専用)
     /help - このヘルプを表示
