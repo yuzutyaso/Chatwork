@@ -9,7 +9,7 @@ from utils import (
     clean_message_body, update_message_count_in_db, post_ranking,
     save_readonly_user_to_db, remove_readonly_user_from_db,
     is_readonly_user_in_db, get_supabase_client, reset_message_counts,
-    get_weather_info, get_user_info
+    get_weather_info
 )
 
 logger = logging.getLogger(__name__)
@@ -101,8 +101,6 @@ def handle_webhook_event(webhook_event):
         handle_help_command(room_id, account_id, message_id)
     elif cleaned_body.startswith("/weather"):
         handle_weather_command(room_id, account_id, message_id, cleaned_body.split())
-    elif cleaned_body.startswith("/userinfo"):
-        handle_user_info_command(room_id, account_id, message_id, cleaned_body.split())
     
     # Abuse detection logic.
     emoji_matches = re.findall(SINGLE_EMOJI_PATTERN, message_body)
@@ -266,7 +264,6 @@ def handle_help_command(room_id, account_id, message_id):
     /say [メッセージ] - ボットがメッセージを投稿 (管理者専用)
     /help - このヘルプを表示
     /weather [都市名] - 指定都市の天気予報を表示
-    /userinfo [ユーザーID] - 指定ユーザーの情報を表示
     「おみくじ」 - おみくじを引く
     """
     send_message(room_id, help_message, reply_to_id=account_id, reply_message_id=message_id)
@@ -285,14 +282,3 @@ def handle_weather_command(room_id, account_id, message_id, parts):
         send_message(room_id, weather_info, reply_to_id=account_id, reply_message_id=message_id)
     else:
         send_message(room_id, f"『{city_name_jp}』の天気情報は対応していません。日本の都道府県名か、主要都市名を入力してください。", reply_to_id=account_id, reply_message_id=message_id)
-
-
-def handle_user_info_command(room_id, account_id, message_id, parts):
-    """Handles the /userinfo command to get user details."""
-    if len(parts) < 2:
-        send_message(room_id, "使用方法: `/userinfo [ユーザーID]`", reply_to_id=account_id, reply_message_id=message_id)
-        return
-    
-    target_user_id = parts[1]
-    user_info = get_user_info(target_user_id)
-    send_message(room_id, user_info, reply_to_id=account_id, reply_message_id=message_id)
