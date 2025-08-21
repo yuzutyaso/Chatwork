@@ -171,9 +171,11 @@ def time_report_command(room_id, message_id, account_id, message_body):
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
         return
 
+    match_minutes = re.search(r'/時報\s*(\d+)\s*分', message_body)
+    
     if "/時報 OK" in message_body:
         try:
-            supabase.table('hourly_report_rooms').insert({"room_id": room_id}).execute()
+            supabase.table('hourly_report_rooms').insert({"room_id": room_id, "interval_minutes": 60}).execute()
             send_chatwork_message(room_id, "このルームに毎時お知らせを投稿するように設定しました。")
         except Exception as e:
             send_chatwork_message(room_id, f"設定中にエラーが発生しました: {e}")
@@ -183,8 +185,21 @@ def time_report_command(room_id, message_id, account_id, message_body):
             send_chatwork_message(room_id, "このルームの毎時お知らせを解除しました。")
         except Exception as e:
             send_chatwork_message(room_id, f"解除中にエラーが発生しました: {e}")
+    elif match_minutes:
+        minutes = int(match_minutes.group(1))
+        if minutes > 0 and minutes <= 60:
+            try:
+                # 既に存在する場合は更新、存在しない場合は挿入
+                response = supabase.table('hourly_report_rooms').update({"interval_minutes": minutes}).eq('room_id', room_id).execute()
+                if not response.data:
+                    supabase.table('hourly_report_rooms').insert({"room_id": room_id, "interval_minutes": minutes}).execute()
+                send_chatwork_message(room_id, f"このルームに毎 {minutes}分ごとのお知らせを投稿するように設定しました。")
+            except Exception as e:
+                send_chatwork_message(room_id, f"設定中にエラーが発生しました: {e}")
+        else:
+            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n分数は1から60の間で指定してください。")
     else:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /時報 OK または /時報 NO")
+        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /時報 OK または /時報 NO または /時報 15分")
 
 def omikuji_command(room_id, message_id, account_id, message_body):
     """おみくじ コマンドの処理"""
@@ -282,4 +297,4 @@ COMMANDS = {
     "/say": say_command, "/weather": weather_command, "/whoami": whoami_command,
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
     "おみくじ": omikuji_command, "/ranking": ranking_command,
-    }
+}
