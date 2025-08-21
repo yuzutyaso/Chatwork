@@ -1,3 +1,4 @@
+# handlers.py
 import os
 import logging
 import re
@@ -69,11 +70,12 @@ def handle_webhook_event(webhook_event, is_manual=True):
         handle_omikuji_command(room_id, account_id, message_id)
     elif cleaned_body == "/ranking all":
         handle_ranking_all_command(room_id, account_id, message_id, is_manual) # フラグを渡す
+    # /ranking 日付コマンドの部屋ID制限を実装
     elif ranking_match := re.match(r'^/ranking\s+(\d{4}/\d{1,2}/\d{1,2})$', cleaned_body):
-        if str(room_id) == "364321548":
+        if str(room_id) == "407802259":
             post_personal_ranking(room_id, ranking_match.group(1), account_id, message_id)
         else:
-            send_message(room_id, "このコマンドは、指定されたルーム(364321548)でのみ有効です。", reply_to_id=account_id, reply_message_id=message_id)
+            send_message(room_id, "このコマンドは、指定されたルーム(407802259)でのみ有効です。", reply_to_id=account_id, reply_message_id=message_id)
     elif cleaned_body == "/restart":
         handle_restart_command(room_id, account_id, message_id)
     elif cleaned_body.startswith("/say"):
@@ -328,3 +330,104 @@ def handle_weather_command(room_id, account_id, message_id, parts):
         send_message(room_id, weather_info, reply_to_id=account_id, reply_message_id=message_id)
     else:
         send_message(room_id, f"『{city_name_jp}』の天気情報は対応していません。日本の都道府県名か、主要都市名を入力してください。", reply_to_id=account_id, reply_message_id=message_id)
+```python
+# services.py
+import os
+import requests
+import logging
+from supabase import create_client, Client
+from constants import (
+    CHATWORK_API_TOKEN, MY_ACCOUNT_ID, SUPABASE_URL, SUPABASE_KEY, OPENWEATHER_API_KEY
+)
+
+logger = logging.getLogger(__name__)
+
+# --- Configuration and Initialization ---
+supabase = None
+def get_supabase_client():
+    """Returns the Supabase client, initializing it if necessary."""
+    global supabase
+    if supabase is None:
+        if SUPABASE_URL and SUPABASE_KEY:
+            try:
+                supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+            except Exception as e:
+                logger.error(f"Failed to create Supabase client: {e}")
+    return supabase
+
+# --- Chatwork API-related functions ---
+def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None):
+    """Sends a message to a Chatwork room."""
+    headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN, "Content-Type": "application/x-www-form-urlencoded"}
+    payload = {"body": message_body}
+    
+    if reply_to_id and reply_message_id:
+        payload["body"] = f"[rp aid={reply_to_id} to={room_id}-{reply_message_id}]\n{message_body}"
+
+    try:
+        requests.post(f"[https://api.chatwork.com/v2/rooms/](https://api.chatwork.com/v2/rooms/){room_id}/messages", headers=headers, data=payload).raise_for_status()
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to send message: {e}")
+        return False
+
+def get_room_members(room_id):
+    """Gets the members information for a room."""
+    headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
+    try:
+        response = requests.get(f"[https://api.chatwork.com/v2/rooms/](https://api.chatwork.com/v2/rooms/){room_id}/members", headers=headers)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to get room members: {e}")
+        return None
+
+def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
+    """Changes member permissions in a room."""
+    headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN, "Content-Type": "application/x-www-form-urlencoded"}
+    payload = {
+        "members_admin_ids": ",".join(map(str, admin_ids)),
+        "members_member_ids": ",".join(map(str, member_ids)),
+        "members_readonly_ids": ",".join(map(str, readonly_ids))
+    }
+    try:
+        requests.put(f"[https://api.chatwork.com/v2/rooms/](https://api.chatwork.com/v2/rooms/){room_id}/members", headers=headers, data=payload).raise_for_status()
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to change permissions: {e}")
+        return False
+
+def is_bot_admin(room_id):
+    """Checks if the bot has admin permissions in a room."""
+    members = get_room_members(room_id)
+    if members:
+        return any(str(member["account_id"]) == str(MY_ACCOUNT_ID) and member["role"] == "admin" for member in members)
+    return False
+
+# --- Supabase Database related functions ---
+def get_last_message_id(account_id):
+    """Fetches the last message ID for a given account from Supabase."""
+    supabase = get_supabase_client()
+    if not supabase: return None
+    try:
+        response = supabase.table('last_message_ids').select("message_id").eq("account_id", account_id).single().execute()
+        return response.data['message_id']
+    except Exception:
+        return None
+
+def update_last_message_id(account_id, message_id):
+    """Updates the last message ID for a given account in Supabase."""
+    supabase = get_supabase_client()
+    if not supabase: return False
+    try:
+        data = {'account_id': account_id, 'message_id': message_id}
+        supabase.table('last_message_ids').upsert([data]).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update last message ID: {e}")
+        return False
+
+def update_message_count_in_db(room_id, date, account_id, account_name, message_id):
+    """Updates the message count in Supabase if the message is new."""
+    supabase = get_supabase_client()
+    i
