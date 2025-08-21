@@ -3,11 +3,11 @@ import re
 import time
 import requests
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 from dotenv import load_dotenv
 
 from db import supabase
-from utils import send_message_to_chatwork, get_chatwork_members, is_admin
+from utils import send_message_to_chatwork, get_chatwork_members, is_admin, change_user_role
 
 # 環境変数の読み込み
 load_dotenv()
@@ -376,15 +376,19 @@ def recount_command(room_id, message_id, account_id, message_body):
         send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
         return
 
+    # コマンドからルームIDを抽出
+    match = re.search(r'/recount\s+(\d+)', message_body)
+    target_room_id = int(match.group(1)) if match else room_id
+    
     try:
         # 1. 指定されたルームのメッセージ数データをすべて削除
-        supabase.table('user_message_counts').delete().eq('room_id', room_id).execute()
+        supabase.table('user_message_counts').delete().eq('room_id', target_room_id).execute()
         
-        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのルームのメッセージ数カウントデータをリセットします。過去100件のメッセージを再集計しています...")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nルームID {target_room_id} のメッセージ数カウントデータをリセットします。過去100件のメッセージを再集計しています...")
 
         # 2. ChatWork APIから直近100件のメッセージを取得
         messages_response = requests.get(
-            f"https://api.chatwork.com/v2/rooms/{room_id}/messages",
+            f"https://api.chatwork.com/v2/rooms/{target_room_id}/messages",
             headers={"X-ChatWorkToken": CHATWORK_API_TOKEN},
             params={"count": 100}
         )
@@ -410,7 +414,7 @@ def recount_command(room_id, message_id, account_id, message_body):
         for (user_id, msg_date), data in counts.items():
             insert_data.append({
                 "user_id": user_id,
-                "room_id": room_id,
+                "room_id": target_room_id,
                 "message_date": msg_date,
                 "message_count": data['count'],
                 "last_message_id": data['last_message_id']
@@ -419,7 +423,7 @@ def recount_command(room_id, message_id, account_id, message_body):
         if insert_data:
             supabase.table('user_message_counts').insert(insert_data).execute()
             
-        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n過去100件のメッセージの再集計が完了しました。")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nルームID {target_room_id} の過去100件のメッセージの再集計が完了しました。")
 
     except Exception as e:
         send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n再集計中にエラーが発生しました: {e}")
