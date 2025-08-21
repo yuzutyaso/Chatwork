@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 from db import supabase
-from utils import send_chatwork_message, get_chatwork_members, is_admin
+from utils import send_message_to_chatwork, get_chatwork_members, is_admin
 
 # 環境変数の読み込み
 load_dotenv()
@@ -35,13 +35,13 @@ JAPAN_PREFECTURES = {
 def test_command(room_id, message_id, account_id, message_body):
     """/test コマンドの処理"""
     response_message = "Botは正常に動作しています。成功です。"
-    send_chatwork_message(room_id, response_message)
+    send_message_to_chatwork(room_id, response_message)
 
 def sorry_command(room_id, message_id, account_id, message_body):
     """/sorry (ユーザーid) コマンドの処理"""
     match = re.search(r'/sorry\s+(\d+)', message_body)
     if not match:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /sorry 12345")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /sorry 12345")
         return
     
     user_id_to_delete = int(match.group(1))
@@ -49,11 +49,11 @@ def sorry_command(room_id, message_id, account_id, message_body):
     try:
         response = supabase.table('viewer_list').delete().eq('user_id', user_id_to_delete).execute()
         if response.data:
-            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{user_id_to_delete}さんを閲覧者リストから削除しました。")
+            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{user_id_to_delete}さんを閲覧者リストから削除しました。")
         else:
-            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n指定されたユーザーIDが見つからないか、処理に失敗しました。")
+            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n指定されたユーザーIDが見つからないか、処理に失敗しました。")
     except Exception as e:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nデータベース処理中にエラーが発生しました: {e}")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nデータベース処理中にエラーが発生しました: {e}")
 
 def roominfo_command(room_id, message_id, account_id, message_body):
     """/roominfo (roomid) コマンドの処理"""
@@ -74,20 +74,20 @@ def roominfo_command(room_id, message_id, account_id, message_body):
         メンバー数: {member_count}人
         管理者数: {admin_count}人
         """
-        send_chatwork_message(room_id, response_message)
+        send_message_to_chatwork(room_id, response_message)
     except Exception as e:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nルーム情報の取得に失敗しました。Botがその部屋に入っていない可能性があります。")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nルーム情報の取得に失敗しました。Botがその部屋に入っていない可能性があります。")
 
 def say_command(room_id, message_id, account_id, message_body):
     """/say メッセージ コマンドの処理"""
     message_to_post = message_body.replace("/say ", "", 1)
-    send_chatwork_message(room_id, message_to_post)
+    send_message_to_chatwork(room_id, message_to_post)
 
 def weather_command(room_id, message_id, account_id, message_body):
     """/weather 都市名 コマンドの処理"""
     city_name = message_body.replace("/weather ", "", 1)
     if not city_name:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n都市名を入力してください。例: /weather 東京 または /weather 東京都")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n都市名を入力してください。例: /weather 東京 または /weather 東京都")
         return
     
     if city_name in JAPAN_PREFECTURES:
@@ -112,9 +112,9 @@ def weather_command(room_id, message_id, account_id, message_body):
         湿度: {humidity}%
         風速: {wind_speed}m/s
         """
-        send_chatwork_message(room_id, response_message)
+        send_message_to_chatwork(room_id, response_message)
     else:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n指定された都市または都道府県が見つかりません。")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n指定された都市または都道府県が見つかりません。")
 
 def whoami_command(room_id, message_id, account_id, message_body):
     """/whoami コマンドの処理"""
@@ -131,23 +131,23 @@ def whoami_command(room_id, message_id, account_id, message_body):
             名前: {my_info['name']}
             権限: {my_info['role']}
             """
-            send_chatwork_message(room_id, response_message)
+            send_message_to_chatwork(room_id, response_message)
         else:
-            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nあなたの情報が見つかりませんでした。")
+            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nあなたの情報が見つかりませんでした。")
     except Exception as e:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nエラーが発生しました: {e}")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nエラーが発生しました: {e}")
 
 def echo_command(room_id, message_id, account_id, message_body):
     """/echo コマンドの処理"""
     message_to_echo = message_body.replace("/echo ", "", 1)
     response_message = f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message_to_echo}"
-    send_chatwork_message(room_id, response_message)
+    send_message_to_chatwork(room_id, response_message)
     
 def timer_command(room_id, message_id, account_id, message_body):
     """/timer コマンドの処理"""
     match = re.search(r'/timer\s+(\d+m)?\s*(\d+s)?\s*"(.*)"', message_body)
     if not match:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /timer 5m 30s \"休憩終了\"")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /timer 5m 30s \"休憩終了\"")
         return
 
     minutes = int(match.group(1)[:-1]) if match.group(1) else 0
@@ -157,18 +157,18 @@ def timer_command(room_id, message_id, account_id, message_body):
     total_seconds = minutes * 60 + seconds
     
     if total_seconds > 0:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{minutes}分{seconds}秒のタイマーを設定しました。")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{minutes}分{seconds}秒のタイマーを設定しました。")
         time.sleep(total_seconds)
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message_to_post}")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message_to_post}")
     else:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nタイマー時間は1秒以上にしてください。")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nタイマー時間は1秒以上にしてください。")
 
 def time_report_command(room_id, message_id, account_id, message_body):
     """時報コマンドの処理（管理者のみ）"""
     
     # ユーザーが管理者であるかを確認
     if not is_admin(room_id, account_id):
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
         return
 
     # 時間と分を正規表現で抽出
@@ -178,15 +178,15 @@ def time_report_command(room_id, message_id, account_id, message_body):
     if "/時報 OK" in message_body:
         try:
             supabase.table('hourly_report_rooms').insert({"room_id": room_id, "interval_minutes": 60}).execute()
-            send_chatwork_message(room_id, "このルームに毎時お知らせを投稿するように設定しました。")
+            send_message_to_chatwork(room_id, "このルームに毎時お知らせを投稿するように設定しました。")
         except Exception as e:
-            send_chatwork_message(room_id, f"設定中にエラーが発生しました: {e}")
+            send_message_to_chatwork(room_id, f"設定中にエラーが発生しました: {e}")
     elif "/時報 NO" in message_body:
         try:
             supabase.table('hourly_report_rooms').delete().eq('room_id', room_id).execute()
-            send_chatwork_message(room_id, "このルームの毎時お知らせを解除しました。")
+            send_message_to_chatwork(room_id, "このルームの毎時お知らせを解除しました。")
         except Exception as e:
-            send_chatwork_message(room_id, f"解除中にエラーが発生しました: {e}")
+            send_message_to_chatwork(room_id, f"解除中にエラーが発生しました: {e}")
     elif match_h or match_m:
         hours = int(match_h.group(1)) if match_h else 0
         minutes = int(match_m.group(1)) if match_m else 0
@@ -198,19 +198,19 @@ def time_report_command(room_id, message_id, account_id, message_body):
                 response = supabase.table('hourly_report_rooms').update({"interval_minutes": total_minutes}).eq('room_id', room_id).execute()
                 if not response.data:
                     supabase.table('hourly_report_rooms').insert({"room_id": room_id, "interval_minutes": total_minutes}).execute()
-                send_chatwork_message(room_id, f"このルームに毎 {hours}時間 {minutes}分ごとのお知らせを投稿するように設定しました。")
+                send_message_to_chatwork(room_id, f"このルームに毎 {hours}時間 {minutes}分ごとのお知らせを投稿するように設定しました。")
             except Exception as e:
-                send_chatwork_message(room_id, f"設定中にエラーが発生しました: {e}")
+                send_message_to_chatwork(room_id, f"設定中にエラーが発生しました: {e}")
         else:
-            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n時間または分は1以上で指定してください。")
+            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n時間または分は1以上で指定してください。")
     else:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /時報 OK, /時報 NO, /時報 1h, /時報 30m, /時報 1h 30m")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /時報 OK, /時報 NO, /時報 1h, /時報 30m, /時報 1h 30m")
 
 def delete_command(room_id, message_id, account_id, message_body):
     """/削除 コマンドの処理（返信されたメッセージを削除）"""
     match = re.search(r'\[rp aid=\d+ to=\d+-(\d+)\]', message_body)
     if not match:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは返信として使用してください。")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは返信として使用してください。")
         return
 
     target_message_id = match.group(1)
@@ -221,11 +221,11 @@ def delete_command(room_id, message_id, account_id, message_body):
             headers={"X-ChatWorkToken": CHATWORK_API_TOKEN}
         )
         if response.status_code == 204:
-            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nメッセージを削除しました。")
+            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nメッセージを削除しました。")
         else:
-            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nメッセージの削除に失敗しました。ステータスコード: {response.status_code}")
+            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nメッセージの削除に失敗しました。ステータスコード: {response.status_code}")
     except Exception as e:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nメッセージ削除中にエラーが発生しました: {e}")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nメッセージ削除中にエラーが発生しました: {e}")
 
 def omikuji_command(room_id, message_id, account_id, message_body):
     """おみくじ コマンドの処理"""
@@ -238,11 +238,11 @@ def omikuji_command(room_id, message_id, account_id, message_body):
         response = supabase.table('omikuji_history').select('last_drawn_date').eq('user_id', user_id_int).execute()
         data = response.data
     except Exception as e:
-        send_chatwork_message(room_id, f"データベースエラーが発生しました: {e}")
+        send_message_to_chatwork(room_id, f"データベースエラーが発生しました: {e}")
         return
     
     if data and datetime.strptime(data[0]['last_drawn_date'], '%Y-%m-%d').date() == today:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n今日のおみくじはすでに引きました。また明日試してくださいね！")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n今日のおみくじはすでに引きました。また明日試してくださいね！")
     else:
         results = ["大吉"] * 10 + ["中吉"] * 20 + ["小吉"] * 30 + ["吉"] * 20 + ["末吉"] * 10 + ["凶"] * 5 + ["大凶"] * 5
         result = random.choice(results)
@@ -252,7 +252,7 @@ def omikuji_command(room_id, message_id, account_id, message_body):
         else:
             supabase.table('omikuji_history').insert({"user_id": user_id_int, "last_drawn_date": today.isoformat()}).execute()
         
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nあなたのおみくじは... **{result}** です！")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nあなたのおみくじは... **{result}** です！")
 
 def ranking_command(room_id, message_id, account_id, message_body):
     """/ranking yyyy/mm/dd (room_id) コマンドの処理"""
@@ -279,7 +279,7 @@ def ranking_command(room_id, message_id, account_id, message_body):
         try:
             ranking_date = datetime.strptime(date_str, '%Y/%m/%d').date().isoformat()
         except ValueError:
-            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n日付の形式が正しくありません。例: /ranking 2025/08/21")
+            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n日付の形式が正しくありません。例: /ranking 2025/08/21")
             return
     else:
         ranking_date = datetime.now().date().isoformat()
@@ -299,7 +299,7 @@ def ranking_command(room_id, message_id, account_id, message_body):
             total_room_messages = sum(item['message_count'] for item in total_messages_response.data)
 
         except Exception as e:
-            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n指定された部屋({target_room_id})の情報を取得できませんでした。ボットがその部屋に参加しているか確認してください。")
+            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n指定された部屋({target_room_id})の情報を取得できませんでした。ボットがその部屋に参加しているか確認してください。")
             return
 
         message_title = f"{room_name}の{ranking_date}個人メッセージ数ランキング\n---\n"
@@ -319,16 +319,58 @@ def ranking_command(room_id, message_id, account_id, message_body):
         
         message_list += f"\n部屋全体の累計メッセージ数: {total_room_messages}"
         
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message_title}{message_list}")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message_title}{message_list}")
 
     else:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n指定された部屋({target_room_id})の{ranking_date}にはまだメッセージがありません。")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n指定された部屋({target_room_id})の{ranking_date}にはまだメッセージがありません。")
+
+def quote_command(room_id, message_id, account_id, message_body):
+    """/quote コマンドの処理（返信されたメッセージを引用）"""
+    match = re.search(r'\[rp aid=(\d+) to=\d+-(\d+)\]', message_body)
+    if not match:
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは返信として使用してください。")
+        return
+
+    quoted_user_id = match.group(1)
+    quoted_message_id = match.group(2)
+    
+    try:
+        # 返信先のメッセージ情報を取得
+        message_response = requests.get(
+            f"https://api.chatwork.com/v2/rooms/{room_id}/messages/{quoted_message_id}",
+            headers={"X-ChatWorkToken": CHATWORK_API_TOKEN}
+        ).json()
+        
+        # ユーザー情報を取得
+        user_response = requests.get(
+            f"https://api.chatwork.com/v2/rooms/{room_id}/members",
+            headers={"X-ChatWorkToken": CHATWORK_API_TOKEN}
+        ).json()
+        
+        # ユーザーIDから名前を検索
+        quoted_user_name = next((member['name'] for member in user_response if member['account_id'] == int(quoted_user_id)), f"ユーザーID:{quoted_user_id}")
+        
+        # メッセージ内容を抽出
+        quoted_message_body = message_response.get("body", "メッセージ本文の取得に失敗しました。")
+        quoted_date = datetime.fromtimestamp(message_response["send_time"]).strftime("%Y/%m/%d %H:%M")
+        
+        # 引用形式に整形
+        quote_text = f"[qt][qtmsg aid={quoted_user_id} file=0 time={message_response['send_time']}]"
+        quote_text += f"**{quoted_user_name}**さん\n"
+        quote_text += f"{quoted_message_body}"
+        quote_text += f"[/qt]\n"
+        quote_text += f"（{quoted_date}の投稿を引用）"
+        
+        send_message_to_chatwork(room_id, quote_text)
+        
+    except Exception as e:
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n引用の処理中にエラーが発生しました: {e}")
 
 # 全コマンドを辞書にまとめる
 COMMANDS = {
     "/test": test_command, "/sorry": sorry_command, "/roominfo": roominfo_command,
     "/say": say_command, "/weather": weather_command, "/whoami": whoami_command,
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
-    "/削除": delete_command,
+    "/削除": delete_command, "/quote": quote_command, # 新しいコマンドを追加
     "おみくじ": omikuji_command, "/ranking": ranking_command,
-        }
+    }
