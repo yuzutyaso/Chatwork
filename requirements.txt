@@ -1,5 +1,7 @@
-flask
+Flask
 gunicorn
 requests
 supabase
 APScheduler
+pytz
+python-dateutil
