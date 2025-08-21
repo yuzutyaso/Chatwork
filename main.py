@@ -57,7 +57,7 @@ def handle_message(room_id, message_id, account_id, message_body):
     match command_name:
         case "/test" | "/roominfo" | "/weather" | "/whoami" | "/echo" | "/timer" | "/ranking" | "/sorry" | "/削除" | "/quote" | "/say":
             # 管理者権限が必要なコマンド
-            if command_name in ["/say", "/echo", "/削除"]:
+            if command_name in ["/say", "/echo", "/削除", "/時報"]:
                 is_admin_user = is_admin(room_id, account_id)
                 if not is_admin_user:
                     send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
@@ -87,7 +87,7 @@ def handle_message(room_id, message_id, account_id, message_body):
                 if is_admin_user:
                     send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n[toall]タグの使用は控えてください。")
                 else:
-                    change_user_role(room_id, account_id, "readonly")
+                    change_user_role(room_id, account_id)
                     send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n[toall]タグが検出されたため、権限を閲覧に変更しました。")
 
             emoji_count = sum(message_body.count(emoji) for emoji in EMOJIS)
@@ -95,7 +95,7 @@ def handle_message(room_id, message_id, account_id, message_body):
                 if is_admin_user:
                     send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n絵文字が多すぎます。ご注意ください。")
                 else:
-                    change_user_role(room_id, account_id, "readonly")
+                    change_user_role(room_id, account_id)
                     send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n絵文字が多すぎるため、権限を閲覧に変更しました。")
     
 
