@@ -221,8 +221,8 @@ def get_weather_info(city_name):
     params = {
         "q": city_name,
         "appid": OPENWEATHER_API_KEY,
-        "units": "metric", # Celsius
-        "lang": "ja"
+        "units": "metric",
+        "lang": "ja"  # Added to get Japanese descriptions
     }
     try:
         response = requests.get(base_url, params=params)
