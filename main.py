@@ -6,30 +6,17 @@ import threading
 from flask import Flask, request, jsonify
 from datetime import datetime
 from dotenv import load_dotenv
-from supabase import create_client, Client
 
-# 各モジュールから関数をインポート
-from commands import commands, ranking_command
-from utils import is_admin, send_chatwork_message, change_user_role, get_chatwork_members
+from db import supabase
+from commands import commands
+from utils import is_admin, send_chatwork_message, change_user_role
 from jobs import hourly_report_job, ranking_post_job
 
 # 環境変数の読み込み
 load_dotenv()
 
 # --- 環境変数の設定 ---
-CHATWORK_API_TOKEN = os.getenv("CHATWORK_API_TOKEN")
-SUPABASE_URL: str = os.getenv("SUPABASE_URL")
-SUPABASE_KEY: str = os.getenv("SUPABASE_KEY")
-OPENWEATHER_API_KEY: str = os.getenv("OPENWEATHER_API_KEY")
 BOT_ACCOUNT_ID = os.getenv("BOT_ACCOUNT_ID")
-
-# --- Supabaseクライアントの初期化 ---
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# --- Flaskアプリの初期化 ---
-app = Flask(__name__)
-
-# --- 絵文字リストの定義 (utils.pyに移動も可能だが、ここではmain.pyに保持) ---
 EMOJIS = [
     ':)', ':(', ':D', '8-)', ':o', ';)', '((sweat))', ':|', ':*', ':p', '(blush)',
     ':^)', '|-)', '(inlove)', ':]', '(talk)', '(yawn)', '(puke)', '(emo)', '8-|',
@@ -38,6 +25,9 @@ EMOJIS = [
     '(anger)', '(devil)', '(lightbulb)', '(*)', '(h)', '(F)', '(cracker)',
     '(eat)', '(^)', '(coffee)', '(beer)', '(handshake)', '(y)'
 ]
+
+# Flaskアプリの初期化
+app = Flask(__name__)
 
 # --- メッセージ受信時のメイン処理 ---
 @app.route('/callback', methods=['POST'])
@@ -109,7 +99,6 @@ def run_scheduler():
 scheduler_thread = threading.Thread(target=run_scheduler)
 scheduler_thread.start()
 
-# --- アプリケーションの起動 ---
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
