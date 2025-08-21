@@ -6,7 +6,7 @@ import requests
 from datetime import datetime, timezone, timedelta
 from utils import send_message, get_room_members, change_room_permissions, is_bot_admin, clean_message_body, \
     update_message_count_in_db, post_ranking, save_readonly_user_to_db, remove_readonly_user_from_db, \
-    is_readonly_user_in_db, get_supabase_client, get_all_messages_for_date, reset_message_counts, save_restart_message_id
+    is_readonly_user_in_db, get_supabase_client, get_all_messages_for_date, reset_message_counts
 
 logger = logging.getLogger(__name__)
 
