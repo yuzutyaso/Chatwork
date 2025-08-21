@@ -53,7 +53,7 @@ def chatwork_callback():
 
             last_message_id = int(last_message_id_str) if last_message_id_str is not None else None
 
-            if last_message_id is None or message_id > last_message_id:
+            if last_message_id is None or int(message_id) > last_message_id:
                 supabase.table('user_message_counts').update({"message_count": current_count + 1, "last_message_id": message_id}).eq('user_id', account_id).eq('room_id', room_id).eq('message_date', today).execute()
         else:
             supabase.table('user_message_counts').insert({"user_id": account_id, "room_id": room_id, "message_date": today, "message_count": 1, "last_message_id": message_id}).execute()
