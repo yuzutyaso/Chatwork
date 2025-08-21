@@ -367,23 +367,62 @@ def quote_command(room_id, message_id, account_id, message_body):
         send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n引用の処理中にエラーが発生しました: {e}")
 
 def recount_command(room_id, message_id, account_id, message_body):
-    """/recount コマンドの処理（そのルームのメッセージ数データをリセット）"""
-    # 管理者権限の確認
+    """
+    /recount コマンドの処理
+    指定ルームのメッセージ数データをリセットし、過去100件を再集計する
+    """
     is_admin_user = is_admin(room_id, account_id)
     if not is_admin_user:
         send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
         return
 
     try:
-        # 警告: この操作は指定されたルームのデータをすべて削除します
-        response = supabase.table('user_message_counts').delete().eq('room_id', room_id).execute()
+        # 1. 指定されたルームのメッセージ数データをすべて削除
+        supabase.table('user_message_counts').delete().eq('room_id', room_id).execute()
         
-        if response.data:
-            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのルームのメッセージ数カウントデータが正常にリセットされました。")
-        else:
-            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nリセットするデータが見つからないか、操作に失敗しました。")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのルームのメッセージ数カウントデータをリセットします。過去100件のメッセージを再集計しています...")
+
+        # 2. ChatWork APIから直近100件のメッセージを取得
+        messages_response = requests.get(
+            f"https://api.chatwork.com/v2/rooms/{room_id}/messages",
+            headers={"X-ChatWorkToken": CHATWORK_API_TOKEN},
+            params={"count": 100}
+        )
+        messages_response.raise_for_status()
+        messages = messages_response.json()
+        
+        # 3. 取得したメッセージを日時順にソート（ChatWork APIの仕様では新しい順に返されるので、リバースする）
+        messages.reverse()
+
+        # 4. 各メッセージの投稿者と日付を抽出して集計
+        counts = {}
+        for msg in messages:
+            msg_date = datetime.fromtimestamp(msg['send_time']).date().isoformat()
+            user_id = msg['account']['account_id']
+            
+            key = (user_id, msg_date)
+            if key not in counts:
+                counts[key] = {'count': 0, 'last_message_id': msg['message_id']}
+            counts[key]['count'] += 1
+            
+        # 5. 集計結果をデータベースに一括挿入
+        insert_data = []
+        for (user_id, msg_date), data in counts.items():
+            insert_data.append({
+                "user_id": user_id,
+                "room_id": room_id,
+                "message_date": msg_date,
+                "message_count": data['count'],
+                "last_message_id": data['last_message_id']
+            })
+            
+        if insert_data:
+            supabase.table('user_message_counts').insert(insert_data).execute()
+            
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n過去100件のメッセージの再集計が完了しました。")
+
     except Exception as e:
-        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nデータベース処理中にエラーが発生しました: {e}")
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n再集計中にエラーが発生しました: {e}")
 
 
 # 全コマンドを辞書にまとめる
@@ -393,5 +432,5 @@ COMMANDS = {
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
     "/削除": delete_command, "/quote": quote_command,
     "おみくじ": omikuji_command, "/ranking": ranking_command,
-    "/recount": recount_command, # 新しいコマンドを追加
-    }
+    "/recount": recount_command, # 新しいコマンド
+}
