@@ -42,9 +42,10 @@ def send_message(room_id: str, message: str, reply_to_id: str = None, reply_mess
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
     body = message
     if reply_to_id:
-        body = f"[rp aid={reply_to_id}]{body}"
+        body = f"[rp aid={reply_to_id}] {body}"
     if reply_message_id:
-        body = f"[qt ref={reply_message_id}]{body}[/qt]"
+        # Chatworkの正しい引用形式に修正
+        body = f"[qt ref={reply_message_id}]\n{body}\n[/qt]"
     payload = {"body": body}
     try:
         response = requests.post(url, headers=headers, data=payload)
