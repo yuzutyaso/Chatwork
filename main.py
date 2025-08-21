@@ -48,6 +48,7 @@ def handle_message(room_id, message_id, account_id, message_body):
         if last_message_id is None or int(message_id) > last_message_id:
             supabase.table('user_message_counts').update({"message_count": current_count + 1, "last_message_id": message_id}).eq('user_id', account_id).eq('room_id', room_id).eq('message_date', today).execute()
     else:
+        # 新しい日付のデータが存在しない場合は、新規レコードを挿入する
         supabase.table('user_message_counts').insert({"user_id": account_id, "room_id": room_id, "message_date": today, "message_count": 1, "last_message_id": message_id}).execute()
 
     # コマンドの判定と実行 (match-case文を使用)
