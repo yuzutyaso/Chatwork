@@ -66,7 +66,14 @@ def ranking_post_job():
                 
                 for i, item in enumerate(response.data):
                     user_name = user_names.get(item['user_id'], f"ユーザーID {item['user_id']}")
-                    message_list += f"{i+1}位: {user_name}さん - {item['message_count']}メッセージ\n"
+                    
+                    # 合計メッセージ数を取得
+                    total_count_response = supabase.table('user_message_counts').select('message_count').eq('user_id', item['user_id']).eq('room_id', room_id).execute()
+                    total_messages = sum(row['message_count'] for row in total_count_response.data)
+
+                    message_list += f"{i+1}位: {user_name}さん\n"
+                    message_list += f"  - 当日メッセージ数: {item['message_count']}\n"
+                    message_list += f"  - 合計メッセージ数: {total_messages}\n"
                 
                 send_chatwork_message(room_id, f"{message_title}{message_list}")
 
