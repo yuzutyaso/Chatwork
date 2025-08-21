@@ -53,6 +53,17 @@ def get_room_members(room_id):
         logger.error(f"Failed to get room members: {e}")
         return None
 
+def get_all_rooms():
+    """Gets all rooms the bot is a member of."""
+    headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
+    try:
+        response = requests.get("https://api.chatwork.com/v2/rooms", headers=headers)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to get all rooms: {e}")
+        return None
+
 def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
     """Changes member permissions in a room."""
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN, "Content-Type": "application/x-www-form-urlencoded"}
@@ -115,7 +126,7 @@ def update_last_message_id(account_id, message_id):
         logger.error(f"Failed to update last message ID: {e}")
         return False
 
-def update_message_count_in_db(date, account_id, account_name, message_id):
+def update_message_count_in_db(room_id, date, account_id, account_name, message_id):
     """Updates the message count in Supabase if the message is new."""
     supabase = get_supabase_client()
     if not supabase: return
@@ -126,18 +137,40 @@ def update_message_count_in_db(date, account_id, account_name, message_id):
         return
 
     try:
-        response = supabase.table('message_counts').select("*").eq("date", date).eq("account_id", account_id).execute()
+        response = supabase.table('message_counts').select("*").eq("room_id", room_id).eq("date", date).eq("account_id", account_id).execute()
         if response.data:
             current_count = response.data[0]['message_count']
             supabase.table('message_counts').update({'message_count': current_count + 1}).eq("id", response.data[0]['id']).execute()
         else:
-            supabase.table('message_counts').insert({"date": date, "account_id": account_id, "name": account_name, "message_count": 1}).execute()
+            supabase.table('message_counts').insert({"room_id": room_id, "date": date, "account_id": account_id, "name": account_name, "message_count": 1}).execute()
         
         # Update the last message ID after a successful count update
         update_last_message_id(account_id, message_id)
 
     except Exception as e:
         logger.error(f"Failed to update message count or last message ID: {e}")
+
+def get_message_count_for_ranking(date_str):
+    """Gets message counts for all rooms for a specific date and returns a dictionary."""
+    supabase = get_supabase_client()
+    if not supabase: return {}
+    try:
+        response = supabase.table('message_counts').select("room_id, message_count").eq("date", date_str).execute()
+        
+        # Aggregate counts by room_id
+        room_counts = {}
+        for row in response.data:
+            room_id = str(row['room_id'])
+            count = row['message_count']
+            room_counts[room_id] = room_counts.get(room_id, 0) + count
+        
+        # Sort the dictionary by value (message count) in descending order
+        sorted_counts = dict(sorted(room_counts.items(), key=lambda item: item[1], reverse=True))
+        return sorted_counts
+    except Exception as e:
+        logger.error(f"Failed to fetch ranking: {e}")
+        return {}
+
 
 def reset_message_counts(date_str):
     """Deletes all message counts for a specific date."""
@@ -157,19 +190,19 @@ def reset_message_counts(date_str):
         return False
 
 def post_ranking(room_id, target_date, reply_to_id, reply_message_id):
-    """Fetches and posts the message count ranking."""
+    """Fetches and posts the message count ranking for a specific room."""
     supabase = get_supabase_client()
     if not supabase:
         send_message(room_id, "データベースが利用できません。", reply_to_id=reply_to_id, reply_message_id=reply_message_id)
         return
     try:
-        response = supabase.table('message_counts').select("*").eq("date", target_date).order("message_count", desc=True).execute()
+        response = supabase.table('message_counts').select("*").eq("date", target_date).eq("room_id", room_id).order("message_count", desc=True).execute()
         ranking = response.data
         if not ranking:
             send_message(room_id, f"{target_date} のデータが見つかりませんでした。", reply_to_id=reply_to_id, reply_message_id=reply_message_id)
         else:
             total_count = sum(item.get('message_count', 0) for item in ranking)
-            ranking_lines = [f"{target_date} の個人メッセージ数ランキング！"]
+            ranking_lines = [f"【{target_date} の個人メッセージ数ランキング】"]
             for i, item in enumerate(ranking, 1):
                 ranking_lines.append(f"{i}位　{item.get('name', 'Unknown')}さん ({item.get('message_count', 0)}件)")
             ranking_lines.append("\n")
@@ -242,3 +275,31 @@ def get_weather_info(city_name):
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return "天気情報の取得中にエラーが発生しました。"
+    
+def update_room_info_in_db(room_id, room_name, last_message_id):
+    """Updates or inserts room information in the database."""
+    supabase = get_supabase_client()
+    if not supabase: return False
+    try:
+        data = {
+            "room_id": str(room_id),
+            "room_name": room_name,
+            "last_message_id": str(last_message_id)
+        }
+        supabase.table('room_info').upsert([data]).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update room info: {e}")
+        return False
+
+def get_all_room_info_from_db():
+    """Gets all room information from the database."""
+    supabase = get_supabase_client()
+    if not supabase: return {}
+    try:
+        response = supabase.table('room_info').select("*").execute()
+        room_info = {str(item["room_id"]): item for item in response.data}
+        return room_info
+    except Exception as e:
+        logger.error(f"Failed to get all room info: {e}")
+        return {}
