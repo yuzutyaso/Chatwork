@@ -4,9 +4,8 @@ import requests
 import schedule
 import threading
 from flask import Flask, request, jsonify
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from supabase import create_client, Client
 from pytz import timezone
 
 from db import supabase
@@ -55,50 +54,36 @@ def handle_message(room_id, message_id, account_id, message_body):
     parts = message_body.split()
     command_name = parts[0] if parts else ""
     
-    match command_name:
-        case "/test" | "/roominfo" | "/weather" | "/whoami" | "/echo" | "/timer" | "/ranking" | "/sorry" | "/削除" | "/quote" | "/say" | "/recount":
-            # 管理者権限が必要なコマンド
-            if command_name in ["/say", "/echo", "/削除", "/時報", "/recount"]:
-                is_admin_user = is_admin(room_id, account_id)
-                if not is_admin_user:
-                    send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
-                    return
-            
-            # timerコマンドはスレッドで実行
-            if command_name == "/timer":
-                thread = threading.Thread(target=COMMANDS[command_name], args=(room_id, message_id, account_id, message_body))
-                thread.start()
-            else:
-                COMMANDS[command_name](room_id, message_id, account_id, message_body)
+    # コマンドの実行
+    if command_name in COMMANDS:
+        command_func = COMMANDS[command_name]
         
-        case "おみくじ":
-            COMMANDS[command_name](room_id, message_id, account_id, message_body)
-        
-        case "/時報":
-            is_admin_user = is_admin(room_id, account_id)
-            if not is_admin_user:
-                send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
-                return
-            COMMANDS[command_name](room_id, message_id, account_id, message_body)
-
-        case _:
-            # [toall]と絵文字の判定
-            is_admin_user = is_admin(room_id, account_id)
-            if "[toall]" in message_body:
-                if is_admin_user:
-                    send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n[toall]タグの使用は控えてください。")
-                else:
-                    change_user_role(room_id, account_id, 'readonly')
-                    send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n[toall]タグが検出されたため、権限を閲覧に変更しました。")
-
-            emoji_count = sum(message_body.count(emoji) for emoji in EMOJIS)
-            if emoji_count >= 15:
-                if is_admin_user:
-                    send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n絵文字が多すぎます。ご注意ください。")
-                else:
-                    change_user_role(room_id, account_id, 'readonly')
-                    send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n絵文字が多すぎるため、権限を閲覧に変更しました。")
+        # timerコマンドはスレッドで実行
+        if command_name == "/timer":
+            thread = threading.Thread(target=command_func, args=(room_id, message_id, account_id, message_body))
+            thread.start()
+        else:
+            command_func(room_id, message_id, account_id, message_body)
     
+    # 特殊なメッセージの処理
+    else:
+        # [toall]と絵文字の判定
+        is_admin_user = is_admin(room_id, account_id)
+        if "[toall]" in message_body:
+            if is_admin_user:
+                send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n[toall]タグの使用は控えてください。")
+            else:
+                change_user_role(room_id, account_id, 'readonly')
+                send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n[toall]タグが検出されたため、権限を閲覧に変更しました。")
+
+        emoji_count = sum(message_body.count(emoji) for emoji in EMOJIS)
+        if emoji_count >= 15:
+            if is_admin_user:
+                send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n絵文字が多すぎます。ご注意ください。")
+            else:
+                change_user_role(room_id, account_id, 'readonly')
+                send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n絵文字が多すぎるため、権限を閲覧に変更しました。")
+
 
 # --- Webhookのコールバック関数 ---
 @app.route('/callback', methods=['POST'])
@@ -136,8 +121,8 @@ if __name__ == '__main__':
 
     # スケジュールされたジョブを登録
     jst_tz = timezone('Asia/Tokyo')
-    schedule.every(1).minutes.do(time_report_job)
     schedule.every().day.at("00:00", tz=jst_tz).do(ranking_post_job)
+    schedule.every(1).minutes.do(time_report_job)
     
     # Flaskサーバーを起動
     port = int(os.environ.get('PORT', 5000))
