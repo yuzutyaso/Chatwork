@@ -220,7 +220,6 @@ def ranking_command(room_id, message_id, account_id, message_body):
     date_str = None
     
     if len(parts) > 1:
-        # 日付と部屋IDを解析する正規表現
         date_pattern = r'\d{4}/\d{2}/\d{2}'
         room_id_pattern = r'\d+'
         
@@ -230,11 +229,8 @@ def ranking_command(room_id, message_id, account_id, message_body):
         
         room_id_match = re.search(room_id_pattern, message_body)
         if room_id_match:
-            # 最初の数字の塊をroom_idとして扱う
             target_room_id_candidate = room_id_match.group(0)
             
-            # もし、日付の数字以外にroom_idらしき数字があれば、それを採用
-            # 例: /ranking 364321548
             if not date_match or target_room_id_candidate != date_match.group(0).replace('/', ''):
                 target_room_id = int(target_room_id_candidate)
 
@@ -247,6 +243,7 @@ def ranking_command(room_id, message_id, account_id, message_body):
     else:
         ranking_date = datetime.now().date().isoformat()
 
+    # 1. 指定された日付と部屋のメッセージ数ランキングを取得
     response = supabase.table('user_message_counts').select('*').eq('message_date', ranking_date).eq('room_id', target_room_id).order('message_count', desc=True).limit(10).execute()
     
     if response.data:
@@ -261,9 +258,18 @@ def ranking_command(room_id, message_id, account_id, message_body):
 
         message_title = f"{room_name}の{ranking_date}個人メッセージ数ランキング\n---\n"
         message_list = ""
+        
+        # 2. 各ユーザーの合計メッセージ数を取得し、ランキングに加える
         for i, item in enumerate(response.data):
             user_name = user_names.get(item['user_id'], f"ユーザーID {item['user_id']}")
-            message_list += f"{i+1}位: {user_name}さん - {item['message_count']}メッセージ\n"
+            
+            # 合計メッセージ数を取得
+            total_count_response = supabase.table('user_message_counts').select('message_count').eq('user_id', item['user_id']).eq('room_id', target_room_id).execute()
+            total_messages = sum(row['message_count'] for row in total_count_response.data)
+
+            message_list += f"{i+1}位: {user_name}さん\n"
+            message_list += f"  - 当日メッセージ数: {item['message_count']}\n"
+            message_list += f"  - 合計メッセージ数: {total_messages}\n"
         
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message_title}{message_list}")
 
@@ -276,4 +282,4 @@ COMMANDS = {
     "/say": say_command, "/weather": weather_command, "/whoami": whoami_command,
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
     "おみくじ": omikuji_command, "/ranking": ranking_command,
-                                  }
+    }
