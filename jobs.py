@@ -22,7 +22,7 @@ def hourly_report_job():
         room_ids = [room['room_id'] for room in response.data]
 
         for room_id in room_ids:
-            message = f"現在時刻は {current_hour}:00 です。今日も一日頑張りましょう！"
+            message = f"現在時刻は {current_hour}:00 です。時間狂ってたら言ってください！"
             send_chatwork_message(room_id, message)
 
     except Exception as e:
