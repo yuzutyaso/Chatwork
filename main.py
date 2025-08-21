@@ -48,9 +48,10 @@ def chatwork_callback():
         response_room = supabase.table('room_message_counts').select('message_count', 'last_message_id').eq('room_id', room_id).execute()
         if response_room.data:
             current_count = response_room.data[0]['message_count']
-            last_message_id = response_room.data[0].get('last_message_id')
+            last_message_id_str = response_room.data[0].get('last_message_id')
             
-            # 最新のメッセージIDが既存のIDより大きい場合のみカウントを更新
+            last_message_id = int(last_message_id_str) if last_message_id_str else None
+            
             if last_message_id is None or message_id > last_message_id:
                 supabase.table('room_message_counts').update({"message_count": current_count + 1, "last_message_id": message_id}).eq('room_id', room_id).execute()
         else:
@@ -61,9 +62,10 @@ def chatwork_callback():
         response_user = supabase.table('user_message_counts').select('message_count', 'last_message_id').eq('user_id', account_id).eq('room_id', room_id).eq('message_date', today).execute()
         if response_user.data:
             current_count = response_user.data[0]['message_count']
-            last_message_id = response_user.data[0].get('last_message_id')
-            
-            # 最新のメッセージIDが既存のIDより大きい場合のみカウントを更新
+            last_message_id_str = response_user.data[0].get('last_message_id')
+
+            last_message_id = int(last_message_id_str) if last_message_id_str else None
+
             if last_message_id is None or message_id > last_message_id:
                 supabase.table('user_message_counts').update({"message_count": current_count + 1, "last_message_id": message_id}).eq('user_id', account_id).eq('room_id', room_id).eq('message_date', today).execute()
         else:
