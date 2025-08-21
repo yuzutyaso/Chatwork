@@ -10,7 +10,7 @@ from supabase import create_client, Client
 from pytz import timezone
 
 from db import supabase
-from commands import COMMANDS
+from commands import COMMANDS, delete_command
 from utils import is_admin, send_chatwork_message, change_user_role
 from jobs import time_report_job, ranking_post_job
 
@@ -71,7 +71,13 @@ def chatwork_callback():
                     if not is_admin_user:
                         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
                         return jsonify({'status': 'ok'})
-
+                # /削除コマンドの管理者チェック
+                if command_name == "/削除":
+                    is_admin_user = is_admin(room_id, account_id)
+                    if not is_admin_user:
+                        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
+                        return jsonify({'status': 'ok'})
+                        
                 if command_name == "/timer":
                     thread = threading.Thread(target=command_func, args=(room_id, message_id, account_id, message_body))
                     thread.start()
