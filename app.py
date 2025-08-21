@@ -2,7 +2,7 @@ import os
 import logging
 from flask import Flask, request
 from handlers import handle_webhook_event
-from utils import send_message, mark_room_as_read, is_bot_admin
+from utils import send_message, mark_room_as_read
 
 # --- ロガー設定 ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
