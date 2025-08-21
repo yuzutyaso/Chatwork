@@ -293,6 +293,11 @@ def ranking_command(room_id, message_id, account_id, message_body):
             room_info = requests.get(f"https://api.chatwork.com/v2/rooms/{target_room_id}", headers={"X-ChatWorkToken": CHATWORK_API_TOKEN}).json()
             user_names = {member['account_id']: member['name'] for member in members}
             room_name = room_info['name']
+            
+            # 部屋の合計メッセージ数を計算
+            total_messages_response = supabase.table('user_message_counts').select('message_count').eq('room_id', target_room_id).execute()
+            total_room_messages = sum(item['message_count'] for item in total_messages_response.data)
+
         except Exception as e:
             send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n指定された部屋({target_room_id})の情報を取得できませんでした。ボットがその部屋に参加しているか確認してください。")
             return
@@ -304,13 +309,15 @@ def ranking_command(room_id, message_id, account_id, message_body):
         for i, item in enumerate(response.data):
             user_name = user_names.get(item['user_id'], f"ユーザーID {item['user_id']}")
             
-            # 合計メッセージ数を取得
+            # 個人の累計メッセージ数を取得
             total_count_response = supabase.table('user_message_counts').select('message_count').eq('user_id', item['user_id']).eq('room_id', target_room_id).execute()
-            total_messages = sum(row['message_count'] for row in total_count_response.data)
+            total_user_messages = sum(row['message_count'] for row in total_count_response.data)
 
             message_list += f"{i+1}位: {user_name}さん\n"
             message_list += f"  - 当日メッセージ数: {item['message_count']}\n"
-            message_list += f"  - 合計メッセージ数: {total_messages}\n"
+            message_list += f"  - 累計メッセージ数: {total_user_messages}\n"
+        
+        message_list += f"\n部屋全体の累計メッセージ数: {total_room_messages}"
         
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message_title}{message_list}")
 
@@ -324,4 +331,4 @@ COMMANDS = {
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
     "/削除": delete_command,
     "おみくじ": omikuji_command, "/ranking": ranking_command,
-            }
+        }
