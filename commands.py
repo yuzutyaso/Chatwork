@@ -190,7 +190,8 @@ def omikuji_command(room_id, message_id, account_id, message_body):
     """おみくじ コマンドの処理"""
     today = datetime.now().date()
     
-    response = supabase.table('omikuji_history').select('last_drawn_date').eq('user_id', account_id).execute()
+    # ユーザーIDを文字列に変換してSupabaseに渡す
+    response = supabase.table('omikuji_history').select('last_drawn_date').eq('user_id', str(account_id)).execute()
     data = response.data
     
     if data and datetime.strptime(data[0]['last_drawn_date'], '%Y-%m-%d').date() == today:
@@ -202,9 +203,9 @@ def omikuji_command(room_id, message_id, account_id, message_body):
         result = random.choice(results)
         
         if data:
-            supabase.table('omikuji_history').update({"last_drawn_date": today.isoformat()}).eq('user_id', account_id).execute()
+            supabase.table('omikuji_history').update({"last_drawn_date": today.isoformat()}).eq('user_id', str(account_id)).execute()
         else:
-            supabase.table('omikuji_history').insert({"user_id": account_id, "last_drawn_date": today.isoformat()}).execute()
+            supabase.table('omikuji_history').insert({"user_id": str(account_id), "last_drawn_date": today.isoformat()}).execute()
         
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nあなたのおみくじは... **{result}** です！")
 
@@ -258,4 +259,4 @@ commands = {
     "/say": say_command, "/weather": weather_command, "/whoami": whoami_command,
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
     "おみくじ": omikuji_command, "/ranking": ranking_command,
-            }
+    }
