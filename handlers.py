@@ -2,6 +2,7 @@ import os
 import logging
 import re
 import random
+import requests
 from datetime import datetime, timezone, timedelta
 from services import (
     send_message, get_room_members, change_room_permissions, is_bot_admin,
@@ -17,8 +18,9 @@ logger = logging.getLogger(__name__)
 
 # --- グローバル変数 ---
 omikuji_history = {}
+REPORT_ROOM_ID = os.environ.get("REPORT_ROOM_ID")
 
-def handle_webhook_event(webhook_event):
+def handle_webhook_event(webhook_event, is_manual=True):
     """Handles the main webhook event logic."""
     room_id = webhook_event.get("room_id")
     message_body = webhook_event.get("body")
@@ -66,7 +68,7 @@ def handle_webhook_event(webhook_event):
     elif "おみくじ" in cleaned_body:
         handle_omikuji_command(room_id, account_id, message_id)
     elif cleaned_body == "/ranking all":
-        handle_ranking_all_command(room_id, account_id, message_id)
+        handle_ranking_all_command(room_id, account_id, message_id, is_manual) # フラグを渡す
     elif ranking_match := re.match(r'^/ranking\s+(\d{4}/\d{1,2}/\d{1,2})$', cleaned_body):
         if str(room_id) == "364321548":
             post_personal_ranking(room_id, ranking_match.group(1), account_id, message_id)
@@ -196,7 +198,7 @@ def handle_permission_list(room_id, account_id, message_id, role_type):
     else:
         send_message(room_id, f"現在、{role_type}権限のユーザーはいません。", reply_to_id=account_id, reply_message_id=message_id)
 
-def handle_ranking_all_command(room_id, account_id, message_id):
+def handle_ranking_all_command(room_id, account_id, message_id, is_manual):
     """Handles the /ranking all command for admins."""
     if not get_supabase_client():
         send_message(room_id, "データベースが利用できません。", reply_to_id=account_id, reply_message_id=message_id)
@@ -208,14 +210,22 @@ def handle_ranking_all_command(room_id, account_id, message_id):
         return
 
     jst = timezone(timedelta(hours=9), 'JST')
-    yesterday_date = (datetime.now(jst) - timedelta(days=1)).strftime("%Y/%#m/%#d")
     
-    ranking = get_message_count_for_ranking(yesterday_date)
+    if is_manual:
+        # 手動実行の場合は「本日」のランキングを返却
+        target_date_str = datetime.now(jst).strftime("%Y/%#m/%#d")
+        ranking_title = "本日"
+    else:
+        # 自動実行の場合は「昨日」のランキングを返却
+        target_date_str = (datetime.now(jst) - timedelta(days=1)).strftime("%Y/%#m/%#d")
+        ranking_title = "昨日"
+
+    ranking = get_message_count_for_ranking(target_date_str)
     if not ranking:
-        send_message(room_id, f"昨日のメッセージ数ランキングはまだありません。", reply_to_id=account_id, reply_message_id=message_id)
+        send_message(room_id, f"{ranking_title}のメッセージ数ランキングはまだありません。", reply_to_id=account_id, reply_message_id=message_id)
         return
         
-    ranking_lines = [f"【昨日のメッセージ数ランキング】"]
+    ranking_lines = [f"【{ranking_title}のメッセージ数ランキング】"]
     for i, (room_id_str, count) in enumerate(ranking.items(), 1):
         room_name = get_all_room_info_from_db().get(room_id_str, {}).get("room_name", f"部屋ID: {room_id_str}")
         ranking_lines.append(f"{i}位: {room_name} ({count}件)")
@@ -223,6 +233,30 @@ def handle_ranking_all_command(room_id, account_id, message_id):
             break
     
     send_message(room_id, "\n".join(ranking_lines), reply_to_id=account_id, reply_message_id=message_id)
+
+def post_all_room_ranking_daily():
+    """Posts all room rankings automatically to the REPORT_ROOM_ID."""
+    if not REPORT_ROOM_ID:
+        logger.warning("REPORT_ROOM_ID is not set. Skipping daily ranking post.")
+        return
+    
+    jst = timezone(timedelta(hours=9), 'JST')
+    yesterday_date = (datetime.now(jst) - timedelta(days=1)).strftime("%Y/%#m/%#d")
+    
+    ranking = get_message_count_for_ranking(yesterday_date)
+    
+    if not ranking:
+        send_message(REPORT_ROOM_ID, "昨日のメッセージ数ランキングはまだありません。", reply_to_id=None, reply_message_id=None)
+        return
+    
+    ranking_lines = [f"【昨日のメッセージ数ランキング】"]
+    for i, (room_id_str, count) in enumerate(ranking.items(), 1):
+        room_name = get_all_room_info_from_db().get(room_id_str, {}).get("room_name", f"部屋ID: {room_id_str}")
+        ranking_lines.append(f"{i}位: {room_name} ({count}件)")
+        if i >= 10:
+            break
+    
+    send_message(REPORT_ROOM_ID, "\n".join(ranking_lines), reply_to_id=None, reply_message_id=None)
 
 def handle_restart_command(room_id, account_id, message_id):
     """
