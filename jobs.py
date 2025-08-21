@@ -2,7 +2,7 @@ import os
 import time
 from datetime import datetime, timedelta
 from utils import send_chatwork_message
-from main import supabase
+from db import supabase
 
 def hourly_report_job():
     try:
