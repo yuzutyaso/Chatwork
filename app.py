@@ -117,12 +117,18 @@ def post_ranking(room_id, target_date, reply_to_id, reply_message_id):
         send_message(room_id, "データベースが利用できません。", reply_to_id=reply_to_id, reply_message_id=reply_message_id)
         return
     try:
-        response = supabase.table('message_counts').select("*").eq("date", target_date).order("message_count", desc=True).limit(5).execute()
+        # すべてのデータを取得
+        response = supabase.table('message_counts').select("*").eq("date", target_date).order("message_count", desc=True).execute()
         ranking = response.data
         if not ranking:
             send_message(room_id, f"{target_date} のデータが見つかりませんでした。", reply_to_id=reply_to_id, reply_message_id=reply_message_id)
         else:
-            ranking_lines = [f"{target_date} の個人メッセージ数ランキング！"] + [f"{i}位　{item.get('name', 'Unknown')}さん ({item.get('message_count', 0)}件)" for i, item in enumerate(ranking, 1)] + ["以上です"]
+            total_count = sum(item.get('message_count', 0) for item in ranking)
+            ranking_lines = [f"{target_date} の個人メッセージ数ランキング！"]
+            for i, item in enumerate(ranking, 1):
+                ranking_lines.append(f"{i}位　{item.get('name', 'Unknown')}さん ({item.get('message_count', 0)}件)")
+            ranking_lines.append("\n")
+            ranking_lines.append(f"合計コメント数: {total_count}件")
             send_message(room_id, "\n".join(ranking_lines), reply_to_id=reply_to_id, reply_message_id=reply_message_id)
     except Exception as e:
         logger.error(f"Failed to fetch ranking: {e}")
