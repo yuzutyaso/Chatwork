@@ -4,9 +4,13 @@ import re
 import random
 import requests
 from datetime import datetime, timezone, timedelta
-from utils import send_message, get_room_members, change_room_permissions, is_bot_admin, clean_message_body, \
-    update_message_count_in_db, post_ranking, save_readonly_user_to_db, remove_readonly_user_from_db, \
-    is_readonly_user_in_db, get_supabase_client, reset_message_counts
+from utils import (
+    send_message, get_room_members, change_room_permissions, is_bot_admin,
+    clean_message_body, update_message_count_in_db, post_ranking,
+    save_readonly_user_to_db, remove_readonly_user_from_db,
+    is_readonly_user_in_db, get_supabase_client, reset_message_counts,
+    get_weather_info, get_user_info
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +74,14 @@ def handle_webhook_event(webhook_event):
             send_message(room_id, "このコマンドは、指定されたルーム(407802259)でのみ有効です。", reply_to_id=account_id, reply_message_id=message_id)
     elif cleaned_body == "/restart":
         handle_restart_command(room_id, account_id, message_id)
+    elif cleaned_body.startswith("/say"):
+        handle_say_command(room_id, account_id, message_id, message_body)
+    elif cleaned_body == "/help":
+        handle_help_command(room_id, account_id, message_id)
+    elif cleaned_body.startswith("/weather"):
+        handle_weather_command(room_id, account_id, message_id, cleaned_body.split())
+    elif cleaned_body.startswith("/userinfo"):
+        handle_user_info_command(room_id, account_id, message_id, cleaned_body.split())
 
     # Abuse detection logic.
     emoji_matches = re.findall(SINGLE_EMOJI_PATTERN, message_body)
@@ -205,3 +217,55 @@ def handle_restart_command(room_id, account_id, message_id):
         send_message(room_id, f"本日（{today_date_str}）のメッセージカウントをリセットしました。", reply_to_id=account_id, reply_message_id=message_id)
     else:
         send_message(room_id, f"メッセージ数のリセットに失敗しました。", reply_to_id=account_id, reply_message_id=message_id)
+
+def handle_say_command(room_id, account_id, message_id, full_body):
+    """Handles the /say command to post a message as the bot."""
+    if not is_bot_admin(room_id):
+        send_message(room_id, "このコマンドはボットが管理者権限を持つ部屋でのみ使用できます。", reply_to_id=account_id, reply_message_id=message_id)
+        return
+
+    say_message = full_body.replace("/say", "", 1).strip()
+    if say_message:
+        send_message(room_id, say_message)
+    else:
+        send_message(room_id, "使用方法: `/say [メッセージ]`", reply_to_id=account_id, reply_message_id=message_id)
+
+def handle_help_command(room_id, account_id, message_id):
+    """Handles the /help command by listing all commands."""
+    help_message = """
+    【コマンド一覧】
+    /test - ボットの動作確認
+    /sorry [ユーザーID] - 閲覧者リストからユーザーを削除
+    /roominfo [ルームID] - ルームの情報を表示
+    /blacklist - 閲覧者リストを表示
+    /admin - 管理者リストを表示
+    /member - メンバーリストを表示
+    /ranking [YYYY/MM/DD] - 指定日のランキングを表示
+    /restart - 当日のメッセージカウントをリセット (管理者専用)
+    /say [メッセージ] - ボットがメッセージを投稿 (管理者専用)
+    /help - このヘルプを表示
+    /weather [都市名] - 指定都市の天気予報を表示
+    /userinfo [ユーザーID] - 指定ユーザーの情報を表示
+    「おみくじ」 - おみくじを引く
+    """
+    send_message(room_id, help_message, reply_to_id=account_id, reply_message_id=message_id)
+
+def handle_weather_command(room_id, account_id, message_id, parts):
+    """Handles the /weather command to get weather information."""
+    if len(parts) < 2:
+        send_message(room_id, "使用方法: `/weather [都市名]`", reply_to_id=account_id, reply_message_id=message_id)
+        return
+    
+    city = parts[1]
+    weather_info = get_weather_info(city)
+    send_message(room_id, weather_info, reply_to_id=account_id, reply_message_id=message_id)
+
+def handle_user_info_command(room_id, account_id, message_id, parts):
+    """Handles the /userinfo command to get user details."""
+    if len(parts) < 2:
+        send_message(room_id, "使用方法: `/userinfo [ユーザーID]`", reply_to_id=account_id, reply_message_id=message_id)
+        return
+    
+    target_user_id = parts[1]
+    user_info = get_user_info(target_user_id)
+    send_message(room_id, user_info, reply_to_id=account_id, reply_message_id=message_id)
