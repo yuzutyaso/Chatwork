@@ -3,6 +3,7 @@ import re
 import requests
 import logging
 from supabase import create_client, Client
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +116,7 @@ def post_ranking(room_id, target_date, reply_to_id, reply_message_id):
         response = supabase.table('message_counts').select("*").eq("date", target_date).order("message_count", desc=True).execute()
         ranking = response.data
         if not ranking:
-            send_message(room_id, f"{target_date} のデータが見つかりませんでした。", reply_to_id=reply_to_id, reply_message_id=message_id)
+            send_message(room_id, f"{target_date} のデータが見つかりませんでした。", reply_to_id=reply_to_id, reply_message_id=reply_message_id)
         else:
             total_count = sum(item.get('message_count', 0) for item in ranking)
             ranking_lines = [f"{target_date} の個人メッセージ数ランキング！"]
@@ -163,4 +164,3 @@ def is_readonly_user_in_db(account_id):
     except Exception as e:
         logger.error(f"Supabase check for readonly_users failed: {e}")
         return False
-
