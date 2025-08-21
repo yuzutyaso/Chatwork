@@ -1,81 +1,74 @@
-import requests
 import os
+import requests
 from datetime import datetime
-from pytz import timezone
+from dotenv import load_dotenv
 
-from utils import send_message_to_chatwork
 from db import supabase
+from utils import send_message_to_chatwork, get_chatwork_members
 
-# ChatWork APIトークンを環境変数から取得
+# 環境変数の読み込み
+load_dotenv()
 CHATWORK_API_TOKEN = os.getenv("CHATWORK_API_TOKEN")
 
 def time_report_job():
-    """時報を分単位で投稿するジョブ"""
+    """設定されたルームに時報を投稿するジョブ"""
     try:
-        # pytzを使用して日本時間（JST）を取得
-        jst_tz = timezone('Asia/Tokyo')
-        now_jst = datetime.now(jst_tz)
-        current_minute = now_jst.minute
-        
-        # データベースからレポート対象のルームIDと設定間隔を取得
         response = supabase.table('hourly_report_rooms').select('room_id', 'interval_minutes').execute()
-        
-        for room in response.data:
+        rooms_to_report = response.data
+
+        for room in rooms_to_report:
             room_id = room['room_id']
-            # interval_minutesが存在しない場合は60分をデフォルトとする
-            interval = room.get('interval_minutes', 60)
+            interval = room['interval_minutes']
+            now_jst = datetime.now(timezone('Asia/Tokyo'))
             
-            # 現在の分が設定間隔の倍数である場合にメッセージを投稿
-            if current_minute % interval == 0:
-                message = f"現在時刻は {now_jst.strftime('%H:%M')} です。ズレてたら報告お願いします🙇"
-                send_chatwork_message(room_id, message)
+            # 指定された間隔（分）の倍数になっているかチェック
+            if now_jst.minute % interval == 0:
+                message = f"現在の時刻をお知らせします。{now_jst.strftime('%Y/%m/%d %H:%M')}"
+                send_message_to_chatwork(room_id, message)
 
     except Exception as e:
         print(f"時報ジョブの実行中にエラーが発生しました: {e}")
 
 def ranking_post_job():
-    """日次のメッセージ数ランキングを投稿するジョブ"""
+    """メッセージ数ランキングを毎日投稿するジョブ"""
     try:
-        today = datetime.now().date().isoformat()
+        # 1. 前日の日付を取得
+        yesterday = (datetime.now() - timedelta(days=1)).date().isoformat()
         
-        # すべてのルームのランキングを取得
-        all_rooms_response = supabase.table('user_message_counts').select('room_id').order('room_id').execute()
-        room_ids = list(set([item['room_id'] for item in all_rooms_response.data]))
+        # 2. メッセージ投稿設定があるルームを取得
+        response = supabase.table('ranking_rooms').select('room_id').execute()
+        ranking_rooms = response.data
+        
+        if not ranking_rooms:
+            print("ランキングを投稿する設定の部屋がありません。")
+            return
 
-        # 日付変更のメッセージを投稿
-        new_day_message = "日付が変わっちゃったね！！"
-        for room_id in room_ids:
-            send_chatwork_message(room_id, new_day_message)
-
-        # ランキングを投稿
-        for room_id in room_ids:
-            response = supabase.table('user_message_counts').select('*').eq('message_date', today).eq('room_id', room_id).order('message_count', desc=True).limit(10).execute()
+        for room in ranking_rooms:
+            room_id = room['room_id']
             
-            if response.data:
-                # 部屋の情報を取得
-                room_info = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}", headers={"X-ChatWorkToken": CHATWORK_API_TOKEN}).json()
-                room_name = room_info['name']
+            # 3. 指定された部屋と日付のメッセージ数を取得
+            ranking_data_response = supabase.table('user_message_counts').select('user_id', 'message_count').eq('room_id', room_id).eq('message_date', yesterday).order('message_count', desc=True).limit(5).execute()
+            ranking_data = ranking_data_response.data
+            
+            if not ranking_data:
+                send_message_to_chatwork(room_id, f"{yesterday}のメッセージ数ランキングはまだありませんでした。")
+                continue
                 
-                # ユーザー情報を取得
-                members_response = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}/members", headers={"X-ChatWorkToken": CHATWORK_API_TOKEN})
-                members = members_response.json()
-                user_names = {member['account_id']: member['name'] for member in members}
-
-                message_title = f"{room_name}の{today}個人メッセージ数ランキング\n---\n"
-                message_list = ""
-                
-                for i, item in enumerate(response.data):
-                    user_name = user_names.get(item['user_id'], f"ユーザーID {item['user_id']}")
-                    
-                    # 合計メッセージ数を取得
-                    total_count_response = supabase.table('user_message_counts').select('message_count').eq('user_id', item['user_id']).eq('room_id', room_id).execute()
-                    total_messages = sum(row['message_count'] for row in total_count_response.data)
-
-                    message_list += f"{i+1}位: {user_name}さん\n"
-                    message_list += f"  - 当日メッセージ数: {item['message_count']}\n"
-                    message_list += f"  - 合計メッセージ数: {total_messages}\n"
-                
-                send_chatwork_message(room_id, f"{message_title}{message_list}")
+            # 4. ユーザー情報を取得してランキングメッセージを作成
+            members = get_chatwork_members(room_id)
+            user_names = {member['account_id']: member['name'] for member in members}
+            
+            ranking_message = f"{yesterday}のメッセージ数ランキング🎉\n"
+            ranking_message += "---\n"
+            
+            for i, data in enumerate(ranking_data):
+                user_id = data['user_id']
+                count = data['message_count']
+                user_name = user_names.get(user_id, f"ユーザーID:{user_id}")
+                ranking_message += f"{i+1}位: {user_name}さん ({count}件)\n"
+            
+            # 5. メッセージを投稿
+            send_message_to_chatwork(room_id, ranking_message)
 
     except Exception as e:
-        print(f"日次ランキングジョブの実行中にエラーが発生しました: {e}")
+        print(f"ランキング投稿ジョブの実行中にエラーが発生しました: {e}")
