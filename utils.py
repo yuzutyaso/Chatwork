@@ -67,6 +67,26 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         logger.error(f"Failed to change permissions: {e}")
         return False
 
+def get_all_messages_for_date(room_id, date_str):
+    """Fetches all messages for a specific date (limited by Chatwork API)."""
+    headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
+    try:
+        response = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}/messages", headers=headers)
+        response.raise_for_status()
+        all_messages = response.json()
+        
+        # Filter messages by date.
+        target_date_obj = datetime.strptime(date_str, "%Y/%m/%d").date()
+        filtered_messages = []
+        for msg in all_messages:
+            msg_date = datetime.fromtimestamp(msg.get("send_time")).date()
+            if msg_date == target_date_obj:
+                filtered_messages.append(msg)
+        return filtered_messages
+    except (requests.exceptions.RequestException, ValueError) as e:
+        logger.error(f"Failed to get messages for date {date_str}: {e}")
+        return None
+
 def mark_room_as_read(room_id):
     """Marks all messages in the specified room as read."""
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
@@ -105,6 +125,17 @@ def update_message_count_in_db(date, account_id, account_name):
             supabase.table('message_counts').insert({"date": date, "account_id": account_id, "name": account_name, "message_count": 1}).execute()
     except Exception as e:
         logger.error(f"Failed to update message count: {e}")
+
+def reset_message_counts(date_str):
+    """Deletes all message counts for a specific date."""
+    supabase = get_supabase_client()
+    if not supabase: return False
+    try:
+        supabase.table('message_counts').delete().eq('date', date_str).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to reset message counts for date {date_str}: {e}")
+        return False
 
 def post_ranking(room_id, target_date, reply_to_id, reply_message_id):
     """Fetches and posts the message count ranking."""
