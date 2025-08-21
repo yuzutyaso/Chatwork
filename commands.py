@@ -190,11 +190,11 @@ def omikuji_command(room_id, message_id, account_id, message_body):
     """おみくじ コマンドの処理"""
     today = datetime.now().date()
     
-    # Supabaseのuser_idカラムがinteger型であることを前提に、str()に変換
-    user_id_str = str(account_id)
+    # Supabaseのuser_idカラムがinteger型であることを前提に、整数型として扱う
+    user_id_int = int(account_id)
     
     try:
-        response = supabase.table('omikuji_history').select('last_drawn_date').eq('user_id', user_id_str).execute()
+        response = supabase.table('omikuji_history').select('last_drawn_date').eq('user_id', user_id_int).execute()
         data = response.data
     except Exception as e:
         send_chatwork_message(room_id, f"データベースエラーが発生しました: {e}")
@@ -207,16 +207,41 @@ def omikuji_command(room_id, message_id, account_id, message_body):
         result = random.choice(results)
         
         if data:
-            supabase.table('omikuji_history').update({"last_drawn_date": today.isoformat()}).eq('user_id', user_id_str).execute()
+            supabase.table('omikuji_history').update({"last_drawn_date": today.isoformat()}).eq('user_id', user_id_int).execute()
         else:
-            supabase.table('omikuji_history').insert({"user_id": user_id_str, "last_drawn_date": today.isoformat()}).execute()
+            supabase.table('omikuji_history').insert({"user_id": user_id_int, "last_drawn_date": today.isoformat()}).execute()
         
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nあなたのおみくじは... **{result}** です！")
+
+def ranking_command(room_id, message_id, account_id, message_body):
+    """/ranking yyyy/mm/dd コマンドの処理"""
+    parts = message_body.split()
+    date_str = parts[1] if len(parts) > 1 else datetime.now().date().strftime('%Y/%m/%d')
+    
+    try:
+        ranking_date = datetime.strptime(date_str, '%Y/%m/%d').date().isoformat()
+    except ValueError:
+        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n日付の形式が正しくありません。例: /ranking 2025/08/21")
+        return
+
+    response = supabase.table('user_message_counts').select('*').eq('message_date', ranking_date).eq('room_id', room_id).order('message_count', desc=True).limit(10).execute()
+    
+    if response.data:
+        members = get_chatwork_members(room_id)
+        user_names = {member['account_id']: member['name'] for member in members}
+        
+        message = f"{date_str}の個人メッセージ数ランキング\n---\n"
+        for i, item in enumerate(response.data):
+            user_name = user_names.get(item['user_id'], f"ユーザーID {item['user_id']}")
+            message += f"{i+1}位: {user_name}さん - {item['message_count']}メッセージ\n"
+        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message}")
+    else:
+        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{date_str}にはまだメッセージがありません。")
 
 # 全コマンドを辞書にまとめる
 COMMANDS = {
     "/test": test_command, "/sorry": sorry_command, "/roominfo": roominfo_command,
     "/say": say_command, "/weather": weather_command, "/whoami": whoami_command,
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
-    "おみくじ": omikuji_command,
-        }
+    "おみくじ": omikuji_command, "/ranking": ranking_command,
+}
