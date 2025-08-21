@@ -268,10 +268,17 @@ def chatwork_webhook():
         if is_readonly_user_in_db(account_id) and is_bot_admin(room_id):
             members = get_room_members(room_id)
             if members:
-                admin_ids = [m["account_id"] for m in members if m["role"] == "admin" and str(m["account_id"]) != str(account_id)]
-                member_ids = [m["account_id"] for m in members if m["role"] == "member" and str(m["account_id"]) != str(account_id)]
-                readonly_ids = [m["account_id"] for m in members if str(m["account_id"]) != str(account_id)]
-                readonly_ids.append(account_id)
+                admin_ids = [m["account_id"] for m in members if m["role"] == "admin"]
+                member_ids = [m["account_id"] for m in members if m["role"] == "member"]
+                readonly_ids = [m["account_id"] for m in members if m["role"] == "readonly"]
+                
+                # 対象ユーザーのIDをリストから削除し、readonly_idsに追加
+                if account_id in admin_ids:
+                    admin_ids.remove(account_id)
+                if account_id in member_ids:
+                    member_ids.remove(account_id)
+                if account_id not in readonly_ids:
+                    readonly_ids.append(account_id)
                 
                 if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
                     send_message(room_id, "このユーザーは過去に閲覧権限に変更されたため、権限を『閲覧』に設定しました。", reply_to_id=account_id, reply_message_id=message_id)
@@ -308,11 +315,18 @@ def chatwork_webhook():
             if is_bot_admin(room_id):
                 members = get_room_members(room_id)
                 if members:
-                    admin_ids = [m["account_id"] for m in members if m["role"] == "admin" and str(m["account_id"]) != str(account_id)]
-                    member_ids = [m["account_id"] for m in members if m["role"] == "member" and str(m["account_id"]) != str(account_id)]
-                    readonly_ids = [m["account_id"] for m in members if str(m["account_id"]) != str(account_id)]
-                    readonly_ids.append(account_id)
-                    
+                    admin_ids = [m["account_id"] for m in members if m["role"] == "admin"]
+                    member_ids = [m["account_id"] for m in members if m["role"] == "member"]
+                    readonly_ids = [m["account_id"] for m in members if m["role"] == "readonly"]
+
+                    # 対象ユーザーのIDをリストから削除し、readonly_idsに追加
+                    if account_id in admin_ids:
+                        admin_ids.remove(account_id)
+                    if account_id in member_ids:
+                        member_ids.remove(account_id)
+                    if account_id not in readonly_ids:
+                        readonly_ids.append(account_id)
+
                     if change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
                         send_message(room_id, "メッセージを送信したユーザーの権限を『閲覧』に変更しました。", reply_to_id=account_id, reply_message_id=message_id)
                         save_readonly_user_to_db(account_id)
