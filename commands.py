@@ -1,11 +1,19 @@
+import os
 import re
 import time
 import requests
 import random
-from datetime import datetime
-from utils import send_chatwork_message, get_chatwork_members
-from main import supabase, OPENWEATHER_API_KEY # main.pyから必要な変数をインポート
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
 
+from db import supabase
+from utils import send_chatwork_message, get_chatwork_members
+
+# 環境変数の読み込み
+load_dotenv()
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
+
+# --- 都道府県と県庁所在地のマッピング ---
 JAPAN_PREFECTURES = {
     "北海道": "札幌", "青森県": "青森", "岩手県": "盛岡", "宮城県": "仙台", "秋田県": "秋田",
     "山形県": "山形", "福島県": "福島", "茨城県": "水戸", "栃木県": "宇都宮", "群馬県": "前橋",
@@ -19,16 +27,22 @@ JAPAN_PREFECTURES = {
     "鹿児島県": "鹿児島", "沖縄県": "那覇",
 }
 
+# --- 各コマンドの関数を定義 ---
+
 def test_command(room_id, message_id, account_id, message_body):
+    """/test コマンドの処理"""
     response_message = "Botは正常に動作しています。成功です。"
     send_chatwork_message(room_id, response_message)
 
 def sorry_command(room_id, message_id, account_id, message_body):
+    """/sorry (ユーザーid) コマンドの処理"""
     match = re.search(r'/sorry\s+(\d+)', message_body)
     if not match:
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /sorry 12345")
         return
+    
     user_id_to_delete = int(match.group(1))
+    
     try:
         response = supabase.table('viewer_list').delete().eq('user_id', user_id_to_delete).execute()
         if response.data:
@@ -39,14 +53,18 @@ def sorry_command(room_id, message_id, account_id, message_body):
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nデータベース処理中にエラーが発生しました: {e}")
 
 def roominfo_command(room_id, message_id, account_id, message_body):
+    """/roominfo (roomid) コマンドの処理"""
     match = re.search(r'/roominfo\s+(\d+)', message_body)
     target_room_id = match.group(1) if match else room_id
+
     try:
         members = get_chatwork_members(target_room_id)
         room_info = requests.get(f"https://api.chatwork.com/v2/rooms/{target_room_id}", headers={"X-ChatWorkToken": os.getenv("CHATWORK_API_TOKEN")}).json()
+        
         member_count = len(members)
         admin_count = sum(1 for m in members if m['role'] == 'admin')
         room_name = room_info['name']
+        
         response_message = f"""
         [rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん
         ルーム名: {room_name}
@@ -58,24 +76,30 @@ def roominfo_command(room_id, message_id, account_id, message_body):
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nルーム情報の取得に失敗しました。Botがその部屋に入っていない可能性があります。")
 
 def say_command(room_id, message_id, account_id, message_body):
+    """/say メッセージ コマンドの処理"""
     message_to_post = message_body.replace("/say ", "", 1)
     send_chatwork_message(room_id, message_to_post)
 
 def weather_command(room_id, message_id, account_id, message_body):
+    """/weather 都市名 コマンドの処理"""
     city_name = message_body.replace("/weather ", "", 1)
     if not city_name:
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n都市名を入力してください。例: /weather 東京 または /weather 東京都")
         return
+    
     if city_name in JAPAN_PREFECTURES:
         city_name = JAPAN_PREFECTURES[city_name]
+
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city_name},jp&appid={OPENWEATHER_API_KEY}&units=metric&lang=ja"
     response = requests.get(url)
+    
     if response.status_code == 200:
         data = response.json()
         weather = data['weather'][0]['description']
         temp = data['main']['temp']
         humidity = data['main']['humidity']
         wind_speed = data['wind']['speed']
+        
         response_message = f"""
         [rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん
         **{city_name}**の天気予報
@@ -90,9 +114,11 @@ def weather_command(room_id, message_id, account_id, message_body):
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n指定された都市または都道府県が見つかりません。")
 
 def whoami_command(room_id, message_id, account_id, message_body):
+    """/whoami コマンドの処理"""
     try:
         members = get_chatwork_members(room_id)
         my_info = next((m for m in members if m['account_id'] == account_id), None)
+        
         if my_info:
             response_message = f"""
             [rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん
@@ -109,19 +135,24 @@ def whoami_command(room_id, message_id, account_id, message_body):
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nエラーが発生しました: {e}")
 
 def echo_command(room_id, message_id, account_id, message_body):
+    """/echo コマンドの処理"""
     message_to_echo = message_body.replace("/echo ", "", 1)
     response_message = f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message_to_echo}"
     send_chatwork_message(room_id, response_message)
     
 def timer_command(room_id, message_id, account_id, message_body):
+    """/timer コマンドの処理"""
     match = re.search(r'/timer\s+(\d+m)?\s*(\d+s)?\s*"(.*)"', message_body)
     if not match:
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /timer 5m 30s \"休憩終了\"")
         return
+
     minutes = int(match.group(1)[:-1]) if match.group(1) else 0
     seconds = int(match.group(2)[:-1]) if match.group(2) else 0
     message_to_post = match.group(3)
+    
     total_seconds = minutes * 60 + seconds
+    
     if total_seconds > 0:
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{minutes}分{seconds}秒のタイマーを設定しました。")
         time.sleep(total_seconds)
@@ -130,6 +161,7 @@ def timer_command(room_id, message_id, account_id, message_body):
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nタイマー時間は1秒以上にしてください。")
 
 def time_report_command(room_id, message_id, account_id, message_body):
+    """/時報 コマンドの処理"""
     if "/時報 OK" in message_body:
         try:
             supabase.table('hourly_report_rooms').insert({"room_id": room_id}).execute()
@@ -146,23 +178,30 @@ def time_report_command(room_id, message_id, account_id, message_body):
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /時報 OK または /時報 NO")
 
 def omikuji_command(room_id, message_id, account_id, message_body):
+    """/omikuji コマンドの処理"""
     today = datetime.now().date()
+    
     response = supabase.table('omikuji_history').select('last_drawn_date').eq('user_id', account_id).execute()
     data = response.data
+    
     if data and datetime.strptime(data[0]['last_drawn_date'], '%Y-%m-%d').date() == today:
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n今日のおみくじはすでに引きました。また明日試してくださいね！")
     else:
         results = ["大吉", "中吉", "小吉", "吉", "末吉", "凶", "大凶"]
         result = random.choice(results)
+        
         if data:
             supabase.table('omikuji_history').update({"last_drawn_date": today.isoformat()}).eq('user_id', account_id).execute()
         else:
             supabase.table('omikuji_history').insert({"user_id": account_id, "last_drawn_date": today.isoformat()}).execute()
+        
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nあなたのおみくじは... **{result}** です！")
 
 def ranking_command(room_id, message_id, account_id, message_body):
+    """/ranking all または /ranking yyyy/mm/dd コマンドの処理"""
     parts = message_body.split()
     command_type = parts[1] if len(parts) > 1 else None
+
     if command_type == "all":
         response = supabase.table('room_message_counts').select('*').order('message_count', desc=True).limit(10).execute()
         if response.data:
@@ -172,6 +211,7 @@ def ranking_command(room_id, message_id, account_id, message_body):
             send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message}")
         else:
             send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nまだメッセージがありません。")
+
     else:
         date_str = command_type if command_type else datetime.now().date().strftime('%Y/%m/%d')
         try:
@@ -179,7 +219,9 @@ def ranking_command(room_id, message_id, account_id, message_body):
         except ValueError:
             send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n日付の形式が正しくありません。例: /ranking 2025/08/21")
             return
+
         response = supabase.table('user_message_counts').select('*').eq('message_date', ranking_date).eq('room_id', room_id).order('message_count', desc=True).limit(10).execute()
+        
         if response.data:
             message = f"{date_str}の個人メッセージ数ランキング\n---\n"
             for i, item in enumerate(response.data):
@@ -194,4 +236,4 @@ commands = {
     "/say": say_command, "/weather": weather_command, "/whoami": whoami_command,
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
     "/omikuji": omikuji_command, "/ranking": ranking_command,
-  }
+        }
