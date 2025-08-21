@@ -2,55 +2,42 @@ import os
 import logging
 from flask import Flask, request
 from handlers import handle_webhook_event
-from utils import send_message, mark_room_as_read
-
-# --- ロガー設定 ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+from services import get_supabase_client
 
 app = Flask(__name__)
-
-# --- 設定と初期化 ---
-CHATWORK_API_TOKEN = os.environ.get("CHATWORK_API_TOKEN")
-MY_ACCOUNT_ID = os.environ.get("MY_ACCOUNT_ID")
-
-if not CHATWORK_API_TOKEN:
-    logger.error("CHATWORK_API_TOKEN is not set.")
-if not MY_ACCOUNT_ID:
-    logger.error("MY_ACCOUNT_ID is not set.")
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 
 @app.route("/", methods=["POST"])
-def chatwork_webhook():
-    """Main webhook handler."""
+def webhook():
+    """Handles incoming Chatwork webhook events."""
     try:
         data = request.json
+        if not data:
+            return "OK", 200
+
         webhook_event = data.get("webhook_event")
+        if webhook_event:
+            logging.info(f"Received webhook event: {webhook_event}")
+            handle_webhook_event(webhook_event)
         
-        if not webhook_event:
-            logger.info("Received a non-webhook event. Ignoring.")
-            return "", 200
-
-        room_id = webhook_event.get("room_id")
-        account_id = webhook_event.get("account_id")
-        
-        # Ignore messages from the bot itself.
-        if str(account_id) == str(MY_ACCOUNT_ID):
-            logger.info("Ignoring webhook event from myself.")
-            return "", 200
-
-        # Mark all messages in the room as read.
-        mark_room_as_read(room_id)
-        
-        # Handle the webhook event.
-        handle_webhook_event(webhook_event)
-
+        return "OK", 200
     except Exception as e:
-        logger.error(f"An unexpected error occurred in app.py: {e}")
-        # In case of an error, send a message to the room if possible.
-        if 'room_id' in locals() and 'account_id' in locals() and 'message_id' in locals():
-            send_message(room_id, "処理中にエラーが発生しました。", reply_to_id=account_id, reply_message_id=message_id)
-
-    return "", 200
+        logging.error(f"Error handling webhook event: {e}")
+        return "Internal Server Error", 500
 
 if __name__ == "__main__":
-    app.run()
+    # Check if required environment variables are set.
+    required_vars = ["CHATWORK_API_TOKEN", "MY_ACCOUNT_ID", "SUPABASE_URL", "SUPABASE_KEY", "OPENWEATHER_API_KEY"]
+    for var in required_vars:
+        if not os.environ.get(var):
+            logging.error(f"Environment variable '{var}' is not set.")
+            # In a real-world scenario, you might want to exit or raise an exception.
+    
+    # Check database connection.
+    supabase_client = get_supabase_client()
+    if supabase_client:
+        logging.info("Successfully connected to Supabase.")
+    else:
+        logging.warning("Could not connect to Supabase. Database-dependent features will not work.")
+
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
