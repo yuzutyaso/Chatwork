@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
 
-# --- 設定と初期化 ---
+# --- Configuration and Initialization ---
 CHATWORK_API_TOKEN = os.environ.get("CHATWORK_API_TOKEN")
 MY_ACCOUNT_ID = os.environ.get("MY_ACCOUNT_ID")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -25,7 +25,7 @@ def get_supabase_client():
                 logger.error(f"Failed to create Supabase client: {e}")
     return supabase
 
-# --- Chatwork API関連の関数 ---
+# --- Chatwork API-related functions ---
 def send_message(room_id, message_body, reply_to_id=None, reply_message_id=None):
     """Sends a message to a Chatwork room."""
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN, "Content-Type": "application/x-www-form-urlencoded"}
@@ -67,27 +67,6 @@ def change_room_permissions(room_id, admin_ids, member_ids, readonly_ids):
         logger.error(f"Failed to change permissions: {e}")
         return False
 
-def get_all_messages_for_date(room_id, date_str):
-    """Fetches all messages for a specific date (limited by Chatwork API)."""
-    headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
-    try:
-        # Chatwork APIは過去100件のメッセージしか取得できない
-        response = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}/messages?force=1", headers=headers)
-        response.raise_for_status()
-        all_messages = response.json()
-        
-        # Filter messages by date.
-        target_date_obj = datetime.strptime(date_str, "%Y/%#m/%#d").date()
-        filtered_messages = []
-        for msg in all_messages:
-            msg_date = datetime.fromtimestamp(msg.get("send_time")).date()
-            if msg_date == target_date_obj:
-                filtered_messages.append(msg)
-        return filtered_messages
-    except (requests.exceptions.RequestException, ValueError) as e:
-        logger.error(f"Failed to get messages for date {date_str}: {e}")
-        return None
-
 def mark_room_as_read(room_id):
     """Marks all messages in the specified room as read."""
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
@@ -112,11 +91,39 @@ def clean_message_body(body):
     body = re.sub(r'\[rp aid=\d+ to=\d+-\d+\]|\[piconname:\d+\].*?さん|\[To:\d+\]', '', body)
     return body.strip()
 
-# --- Supabaseデータベース関連の関数 ---
-def update_message_count_in_db(date, account_id, account_name):
-    """Updates the message count in Supabase."""
+# --- Supabase Database related functions ---
+def get_last_message_id(account_id):
+    """Fetches the last message ID for a given account from Supabase."""
+    supabase = get_supabase_client()
+    if not supabase: return None
+    try:
+        response = supabase.table('last_message_ids').select("message_id").eq("account_id", account_id).single().execute()
+        return response.data['message_id']
+    except Exception:
+        return None
+
+def update_last_message_id(account_id, message_id):
+    """Updates the last message ID for a given account in Supabase."""
+    supabase = get_supabase_client()
+    if not supabase: return False
+    try:
+        data = {'account_id': account_id, 'message_id': message_id}
+        supabase.table('last_message_ids').upsert([data]).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update last message ID: {e}")
+        return False
+
+def update_message_count_in_db(date, account_id, account_name, message_id):
+    """Updates the message count in Supabase if the message is new."""
     supabase = get_supabase_client()
     if not supabase: return
+    
+    last_id = get_last_message_id(account_id)
+    if last_id and int(message_id) <= int(last_id):
+        logger.info(f"Ignoring duplicate message for account {account_id}, message_id {message_id}")
+        return
+
     try:
         response = supabase.table('message_counts').select("*").eq("date", date).eq("account_id", account_id).execute()
         if response.data:
@@ -124,15 +131,25 @@ def update_message_count_in_db(date, account_id, account_name):
             supabase.table('message_counts').update({'message_count': current_count + 1}).eq("id", response.data[0]['id']).execute()
         else:
             supabase.table('message_counts').insert({"date": date, "account_id": account_id, "name": account_name, "message_count": 1}).execute()
+        
+        # Update the last message ID after a successful count update
+        update_last_message_id(account_id, message_id)
+
     except Exception as e:
-        logger.error(f"Failed to update message count: {e}")
+        logger.error(f"Failed to update message count or last message ID: {e}")
 
 def reset_message_counts(date_str):
     """Deletes all message counts for a specific date."""
     supabase = get_supabase_client()
     if not supabase: return False
     try:
+        # Delete from message_counts table
         supabase.table('message_counts').delete().eq('date', date_str).execute()
+        
+        # Optionally, clear last_message_ids for this date, though webhook logic will overwrite it anyway.
+        # This is commented out to avoid unnecessary DB calls.
+        # supabase.table('last_message_ids').delete().eq('date', date_str).execute()
+
         return True
     except Exception as e:
         logger.error(f"Failed to reset message counts for date {date_str}: {e}")
