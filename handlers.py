@@ -1,6 +1,8 @@
+import os
 import logging
 import re
 import random
+import requests
 from datetime import datetime, timezone, timedelta
 from utils import send_message, get_room_members, change_room_permissions, is_bot_admin, clean_message_body, \
     update_message_count_in_db, post_ranking, save_readonly_user_to_db, remove_readonly_user_from_db, \
@@ -177,4 +179,3 @@ def handle_permission_list(room_id, account_id, message_id, role_type):
         send_message(room_id, message, reply_to_id=account_id, reply_message_id=message_id)
     else:
         send_message(room_id, f"現在、{role_type}権限のユーザーはいません。", reply_to_id=account_id, reply_message_id=message_id)
-
