@@ -366,11 +366,32 @@ def quote_command(room_id, message_id, account_id, message_body):
     except Exception as e:
         send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n引用の処理中にエラーが発生しました: {e}")
 
+def recount_command(room_id, message_id, account_id, message_body):
+    """/recount コマンドの処理（そのルームのメッセージ数データをリセット）"""
+    # 管理者権限の確認
+    is_admin_user = is_admin(room_id, account_id)
+    if not is_admin_user:
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
+        return
+
+    try:
+        # 警告: この操作は指定されたルームのデータをすべて削除します
+        response = supabase.table('user_message_counts').delete().eq('room_id', room_id).execute()
+        
+        if response.data:
+            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのルームのメッセージ数カウントデータが正常にリセットされました。")
+        else:
+            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nリセットするデータが見つからないか、操作に失敗しました。")
+    except Exception as e:
+        send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nデータベース処理中にエラーが発生しました: {e}")
+
+
 # 全コマンドを辞書にまとめる
 COMMANDS = {
     "/test": test_command, "/sorry": sorry_command, "/roominfo": roominfo_command,
     "/say": say_command, "/weather": weather_command, "/whoami": whoami_command,
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
-    "/削除": delete_command, "/quote": quote_command, # 新しいコマンドを追加
+    "/削除": delete_command, "/quote": quote_command,
     "おみくじ": omikuji_command, "/ranking": ranking_command,
+    "/recount": recount_command, # 新しいコマンドを追加
     }
