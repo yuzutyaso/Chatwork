@@ -13,6 +13,9 @@ from utils import send_chatwork_message, get_chatwork_members
 load_dotenv()
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 
+# ChatWork APIトークンを環境変数から取得
+CHATWORK_API_TOKEN = os.getenv("CHATWORK_API_TOKEN")
+
 # --- 都道府県と県庁所在地のマッピング ---
 JAPAN_PREFECTURES = {
     "北海道": "札幌", "青森県": "青森", "岩手県": "盛岡", "宮城県": "仙台", "秋田県": "秋田",
@@ -59,7 +62,7 @@ def roominfo_command(room_id, message_id, account_id, message_body):
 
     try:
         members = get_chatwork_members(target_room_id)
-        room_info = requests.get(f"https://api.chatwork.com/v2/rooms/{target_room_id}", headers={"X-ChatWorkToken": os.getenv("CHATWORK_API_TOKEN")}).json()
+        room_info = requests.get(f"https://api.chatwork.com/v2/rooms/{target_room_id}", headers={"X-ChatWorkToken": CHATWORK_API_TOKEN}).json()
         
         member_count = len(members)
         admin_count = sum(1 for m in members if m['role'] == 'admin')
@@ -178,7 +181,7 @@ def time_report_command(room_id, message_id, account_id, message_body):
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコマンド形式が正しくありません。例: /時報 OK または /時報 NO")
 
 def omikuji_command(room_id, message_id, account_id, message_body):
-    """/omikuji コマンドの処理"""
+    """おみくじ コマンドの処理"""
     today = datetime.now().date()
     
     response = supabase.table('omikuji_history').select('last_drawn_date').eq('user_id', account_id).execute()
@@ -187,7 +190,9 @@ def omikuji_command(room_id, message_id, account_id, message_body):
     if data and datetime.strptime(data[0]['last_drawn_date'], '%Y-%m-%d').date() == today:
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n今日のおみくじはすでに引きました。また明日試してくださいね！")
     else:
-        results = ["大吉", "中吉", "小吉", "吉", "末吉", "凶", "大凶"]
+        # 確率でおみくじの結果を決定
+        results = [
+            "大吉"] * 10 + ["中吉"] * 20 + ["小吉"] * 30 + ["吉"] * 20 + ["末吉"] * 10 + ["凶"] * 5 + ["大凶"] * 5
         result = random.choice(results)
         
         if data:
@@ -207,7 +212,13 @@ def ranking_command(room_id, message_id, account_id, message_body):
         if response.data:
             message = "本日のメッセージ数ランキング (全ルーム)\n---\n"
             for i, item in enumerate(response.data):
-                message += f"{i+1}位: ルームID {item['room_id']} - {item['message_count']}メッセージ\n"
+                try:
+                    # ルームIDから部屋名を取得
+                    room_info = requests.get(f"https://api.chatwork.com/v2/rooms/{item['room_id']}", headers={"X-ChatWorkToken": CHATWORK_API_TOKEN}).json()
+                    room_name = room_info.get('name', '取得失敗')
+                    message += f"{i+1}位: {room_name} - {item['message_count']}メッセージ\n"
+                except Exception:
+                    message += f"{i+1}位: ルームID {item['room_id']} (部屋名取得失敗) - {item['message_count']}メッセージ\n"
             send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message}")
         else:
             send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nまだメッセージがありません。")
@@ -223,9 +234,14 @@ def ranking_command(room_id, message_id, account_id, message_body):
         response = supabase.table('user_message_counts').select('*').eq('message_date', ranking_date).eq('room_id', room_id).order('message_count', desc=True).limit(10).execute()
         
         if response.data:
+            # ルームメンバーリストを取得してユーザーIDと名前をマッピング
+            members = get_chatwork_members(room_id)
+            user_names = {member['account_id']: member['name'] for member in members}
+            
             message = f"{date_str}の個人メッセージ数ランキング\n---\n"
             for i, item in enumerate(response.data):
-                message += f"{i+1}位: ユーザーID {item['user_id']}さん - {item['message_count']}メッセージ\n"
+                user_name = user_names.get(item['user_id'], f"ユーザーID {item['user_id']}")
+                message += f"{i+1}位: {user_name}さん - {item['message_count']}メッセージ\n"
             send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message}")
         else:
             send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{date_str}にはまだメッセージがありません。")
@@ -235,5 +251,5 @@ commands = {
     "/test": test_command, "/sorry": sorry_command, "/roominfo": roominfo_command,
     "/say": say_command, "/weather": weather_command, "/whoami": whoami_command,
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
-    "/omikuji": omikuji_command, "/ranking": ranking_command,
+    "おみくじ": omikuji_command, "/ranking": ranking_command,
         }
