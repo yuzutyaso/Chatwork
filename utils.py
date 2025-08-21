@@ -71,12 +71,13 @@ def get_all_messages_for_date(room_id, date_str):
     """Fetches all messages for a specific date (limited by Chatwork API)."""
     headers = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
     try:
-        response = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}/messages", headers=headers)
+        # Chatwork APIは過去100件のメッセージしか取得できない
+        response = requests.get(f"https://api.chatwork.com/v2/rooms/{room_id}/messages?force=1", headers=headers)
         response.raise_for_status()
         all_messages = response.json()
         
         # Filter messages by date.
-        target_date_obj = datetime.strptime(date_str, "%Y/%m/%d").date()
+        target_date_obj = datetime.strptime(date_str, "%Y/%#m/%#d").date()
         filtered_messages = []
         for msg in all_messages:
             msg_date = datetime.fromtimestamp(msg.get("send_time")).date()
