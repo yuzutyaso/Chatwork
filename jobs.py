@@ -9,21 +9,26 @@ from db import supabase
 # ChatWork APIトークンを環境変数から取得
 CHATWORK_API_TOKEN = os.getenv("CHATWORK_API_TOKEN")
 
-def hourly_report_job():
-    """毎時のメッセージ数レポートを投稿するジョブ"""
+def time_report_job():
+    """時報を分単位で投稿するジョブ"""
     try:
         # pytzを使用して日本時間（JST）を取得
         jst_tz = timezone('Asia/Tokyo')
         now_jst = datetime.now(jst_tz)
-        current_hour = now_jst.hour
+        current_minute = now_jst.minute
         
-        # データベースからレポート対象のルームIDを取得
-        response = supabase.table('hourly_report_rooms').select('room_id').execute()
-        room_ids = [room['room_id'] for room in response.data]
-
-        for room_id in room_ids:
-            message = f"現在時刻は {current_hour}:00 です。時間狂ってたら言ってください！"
-            send_chatwork_message(room_id, message)
+        # データベースからレポート対象のルームIDと設定間隔を取得
+        response = supabase.table('hourly_report_rooms').select('room_id', 'interval_minutes').execute()
+        
+        for room in response.data:
+            room_id = room['room_id']
+            # interval_minutesが存在しない場合は60分をデフォルトとする
+            interval = room.get('interval_minutes', 60)
+            
+            # 現在の分が設定間隔の倍数である場合にメッセージを投稿
+            if current_minute % interval == 0:
+                message = f"現在時刻は {now_jst.strftime('%H:%M')} です。今日も一日頑張りましょう！"
+                send_chatwork_message(room_id, message)
 
     except Exception as e:
         print(f"時報ジョブの実行中にエラーが発生しました: {e}")
@@ -37,6 +42,12 @@ def ranking_post_job():
         all_rooms_response = supabase.table('user_message_counts').select('room_id').order('room_id').execute()
         room_ids = list(set([item['room_id'] for item in all_rooms_response.data]))
 
+        # 日付変更のメッセージを投稿
+        new_day_message = "日付が変わりました。新しい日を頑張りましょう！"
+        for room_id in room_ids:
+            send_chatwork_message(room_id, new_day_message)
+
+        # ランキングを投稿
         for room_id in room_ids:
             response = supabase.table('user_message_counts').select('*').eq('message_date', today).eq('room_id', room_id).order('message_count', desc=True).limit(10).execute()
             
