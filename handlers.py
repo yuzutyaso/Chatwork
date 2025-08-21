@@ -20,6 +20,27 @@ omikuji_history = {}
 SINGLE_EMOJI_PATTERN = r"(?::\)|:\(|:D|8-\)|:o|;\)|;\(|:\*|:p|\(blush\)|:\^|\(inlove\)|\(sweat\)|\|\-\)|\]:D|\(talk\)|\(yawn\)|\(puke\)|\(emo\)|8-\||:\#|\(nod\)|\(shake\)|\(\^\^;\)|\(whew\)|\(clap\)|\(bow\)|\(roger\)|\(flex\)|\(dance\)|\(:/\)|\(gogo\)|\(think\)|\(please\)|\(quick\)|\(anger\)|\(devil\)|\(lightbulb\)|\(\*\)|\(h\)|\(F\)|\(cracker\)|\(eat\)|\(\^\)|\(coffee\)|\(beer\)|\(handshake\)|\(y\))"
 MY_ACCOUNT_ID = os.environ.get("MY_ACCOUNT_ID")
 
+# 都道府県名をOpenWeatherMapの都市名にマッピングする辞書
+JAPANESE_CITIES = {
+    "北海道": "Hokkaido", "青森": "Aomori", "岩手": "Iwate", "宮城": "Miyagi",
+    "秋田": "Akita", "山形": "Yamagata", "福島": "Fukushima", "茨城": "Ibaraki",
+    "栃木": "Tochigi", "群馬": "Gunma", "埼玉": "Saitama", "千葉": "Chiba",
+    "東京": "Tokyo", "神奈川": "Kanagawa", "新潟": "Niigata", "富山": "Toyama",
+    "石川": "Ishikawa", "福井": "Fukui", "山梨": "Yamanashi", "長野": "Nagano",
+    "岐阜": "Gifu", "静岡": "Shizuoka", "愛知": "Aichi", "三重": "Mie",
+    "滋賀": "Shiga", "京都": "Kyoto", "大阪": "Osaka", "兵庫": "Hyogo",
+    "奈良": "Nara", "和歌山": "Wakayama", "鳥取": "Tottori", "島根": "Shimane",
+    "岡山": "Okayama", "広島": "Hiroshima", "山口": "Yamaguchi", "徳島": "Tokushima",
+    "香川": "Kagawa", "愛媛": "Ehime", "高知": "Kochi", "福岡": "Fukuoka",
+    "佐賀": "Saga", "長崎": "Nagasaki", "熊本": "Kumamoto", "大分": "Oita",
+    "宮崎": "Miyazaki", "鹿児島": "Kagoshima", "沖縄": "Okinawa",
+    # 主要都市名も追加
+    "札幌": "Sapporo", "仙台": "Sendai", "さいたま": "Saitama", "横浜": "Yokohama",
+    "川崎": "Kawasaki", "名古屋": "Nagoya", "神戸": "Kobe", "広島": "Hiroshima",
+    "北九州": "Kitakyushu", "福岡市": "Fukuoka", "熊本市": "Kumamoto",
+    "那覇": "Naha"
+}
+
 def handle_webhook_event(webhook_event):
     """Handles the main webhook event logic."""
     room_id = webhook_event.get("room_id")
@@ -82,7 +103,7 @@ def handle_webhook_event(webhook_event):
         handle_weather_command(room_id, account_id, message_id, cleaned_body.split())
     elif cleaned_body.startswith("/userinfo"):
         handle_user_info_command(room_id, account_id, message_id, cleaned_body.split())
-
+    
     # Abuse detection logic.
     emoji_matches = re.findall(SINGLE_EMOJI_PATTERN, message_body)
     if "[toall]" in message_body.lower() or len(emoji_matches) >= 15:
@@ -255,10 +276,16 @@ def handle_weather_command(room_id, account_id, message_id, parts):
     if len(parts) < 2:
         send_message(room_id, "使用方法: `/weather [都市名]`", reply_to_id=account_id, reply_message_id=message_id)
         return
-    
-    city = parts[1]
-    weather_info = get_weather_info(city)
-    send_message(room_id, weather_info, reply_to_id=account_id, reply_message_id=message_id)
+
+    city_name_jp = parts[1]
+    city_name_en = JAPANESE_CITIES.get(city_name_jp)
+
+    if city_name_en:
+        weather_info = get_weather_info(city_name_en)
+        send_message(room_id, weather_info, reply_to_id=account_id, reply_message_id=message_id)
+    else:
+        send_message(room_id, f"『{city_name_jp}』の天気情報は対応していません。日本の都道府県名か、主要都市名を入力してください。", reply_to_id=account_id, reply_message_id=message_id)
+
 
 def handle_user_info_command(room_id, account_id, message_id, parts):
     """Handles the /userinfo command to get user details."""
