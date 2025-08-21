@@ -214,29 +214,61 @@ def omikuji_command(room_id, message_id, account_id, message_body):
         send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nあなたのおみくじは... **{result}** です！")
 
 def ranking_command(room_id, message_id, account_id, message_body):
-    """/ranking yyyy/mm/dd コマンドの処理"""
+    """/ranking yyyy/mm/dd (room_id) コマンドの処理"""
     parts = message_body.split()
-    date_str = parts[1] if len(parts) > 1 else datetime.now().date().strftime('%Y/%m/%d')
+    target_room_id = room_id
+    date_str = None
     
-    try:
-        ranking_date = datetime.strptime(date_str, '%Y/%m/%d').date().isoformat()
-    except ValueError:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n日付の形式が正しくありません。例: /ranking 2025/08/21")
-        return
+    if len(parts) > 1:
+        # 日付と部屋IDを解析する正規表現
+        date_pattern = r'\d{4}/\d{2}/\d{2}'
+        room_id_pattern = r'\d+'
+        
+        date_match = re.search(date_pattern, message_body)
+        if date_match:
+            date_str = date_match.group(0)
+        
+        room_id_match = re.search(room_id_pattern, message_body)
+        if room_id_match:
+            # 最初の数字の塊をroom_idとして扱う
+            target_room_id_candidate = room_id_match.group(0)
+            
+            # もし、日付の数字以外にroom_idらしき数字があれば、それを採用
+            # 例: /ranking 364321548
+            if not date_match or target_room_id_candidate != date_match.group(0).replace('/', ''):
+                target_room_id = int(target_room_id_candidate)
 
-    response = supabase.table('user_message_counts').select('*').eq('message_date', ranking_date).eq('room_id', room_id).order('message_count', desc=True).limit(10).execute()
+    if date_str:
+        try:
+            ranking_date = datetime.strptime(date_str, '%Y/%m/%d').date().isoformat()
+        except ValueError:
+            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n日付の形式が正しくありません。例: /ranking 2025/08/21")
+            return
+    else:
+        ranking_date = datetime.now().date().isoformat()
+
+    response = supabase.table('user_message_counts').select('*').eq('message_date', ranking_date).eq('room_id', target_room_id).order('message_count', desc=True).limit(10).execute()
     
     if response.data:
-        members = get_chatwork_members(room_id)
-        user_names = {member['account_id']: member['name'] for member in members}
-        
-        message = f"{date_str}の個人メッセージ数ランキング\n---\n"
+        try:
+            members = get_chatwork_members(target_room_id)
+            room_info = requests.get(f"https://api.chatwork.com/v2/rooms/{target_room_id}", headers={"X-ChatWorkToken": CHATWORK_API_TOKEN}).json()
+            user_names = {member['account_id']: member['name'] for member in members}
+            room_name = room_info['name']
+        except Exception as e:
+            send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n指定された部屋({target_room_id})の情報を取得できませんでした。ボットがその部屋に参加しているか確認してください。")
+            return
+
+        message_title = f"{room_name}の{ranking_date}個人メッセージ数ランキング\n---\n"
+        message_list = ""
         for i, item in enumerate(response.data):
             user_name = user_names.get(item['user_id'], f"ユーザーID {item['user_id']}")
-            message += f"{i+1}位: {user_name}さん - {item['message_count']}メッセージ\n"
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message}")
+            message_list += f"{i+1}位: {user_name}さん - {item['message_count']}メッセージ\n"
+        
+        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{message_title}{message_list}")
+
     else:
-        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{date_str}にはまだメッセージがありません。")
+        send_chatwork_message(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n指定された部屋({target_room_id})の{ranking_date}にはまだメッセージがありません。")
 
 # 全コマンドを辞書にまとめる
 COMMANDS = {
@@ -244,4 +276,4 @@ COMMANDS = {
     "/say": say_command, "/weather": weather_command, "/whoami": whoami_command,
     "/echo": echo_command, "/timer": timer_command, "/時報": time_report_command,
     "おみくじ": omikuji_command, "/ranking": ranking_command,
-}
+                                  }
