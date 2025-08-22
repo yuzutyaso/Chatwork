@@ -12,6 +12,8 @@ try:
     BOT_ACCOUNT_ID = int(os.environ['BOT_ACCOUNT_ID'])
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
     OPENWEATHERMAP_API_KEY = os.environ.get('OPENWEATHERMAP_API_KEY')
+    # 特定の部屋からのリクエストのみを処理するための環境変数
+    TEST_ROOM_ID = os.environ.get('TEST_ROOM_ID')
 
     if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
@@ -50,13 +52,14 @@ def call_chatwork_api(endpoint, method='GET', params=None):
             response = requests.post(url, headers=headers, data=params)
         elif method == 'PUT':
             response = requests.put(url, headers=headers, data=params)
-        response.raise_for_status()
+        response.raise_for_status() # HTTPエラーの場合に例外を発生させる
         return response.json()
     except requests.exceptions.RequestException as e:
+        # この部分にエラーメッセージをChatworkに送信する処理を追加
         error_message = f"🚨 API呼び出しエラーが発生しました。\nエンドポイント: {endpoint}\nメソッド: {method}\nエラー内容: {e}"
         
-        # エラーが発生しても、Chatworkにメッセージを送信する
         try:
+            # POSTメソッドでメッセージを送信
             room_id_from_request = request.json.get('room_id')
             if room_id_from_request:
                 requests.post(
@@ -65,6 +68,7 @@ def call_chatwork_api(endpoint, method='GET', params=None):
                     data={'body': error_message}
                 )
         except Exception as post_error:
+            # 投稿も失敗した場合は、デバッグ用にコンソールに出力
             print(f"Chatworkへのエラーメッセージ投稿に失敗しました: {post_error}")
             
         raise
@@ -74,19 +78,26 @@ def call_chatwork_api(endpoint, method='GET', params=None):
 def handle_webhook():
     try:
         data = request.json
-        room_id = data.get('room_id')
+        webhook_room_id = data.get('room_id')
         account_id = data.get('account_id')
         message_id = data.get('message_id')
         message_body = data.get('body', '')
+
+        # TEST_ROOM_IDが設定されている場合、その部屋からのリクエストのみを処理
+        if TEST_ROOM_ID and str(webhook_room_id) != TEST_ROOM_ID:
+            print(f"Skipping webhook from room {webhook_room_id} as it's not the designated test room.")
+            return 'OK'
 
         # ボット自身の投稿は無視
         if account_id == BOT_ACCOUNT_ID:
             return 'OK'
         
         # room_idがなければ、何らかの問題があるためログを出力して終了
-        if not room_id:
+        if not webhook_room_id:
             print("Webhook payload does not contain room_id. Skipping.")
             return 'OK'
+            
+        room_id = webhook_room_id
 
         # 管理者チェック関数
         def is_user_admin(user_id):
@@ -105,7 +116,7 @@ def handle_webhook():
             call_chatwork_api(f"rooms/{room_id}/messages", method='POST', params={'body': f"[rp aid={account_id} to={room_id}-{message_id}]" + message})
 
         is_admin = is_user_admin(account_id)
-
+        
         # 絵文字と[toall]の権限変更ロジック
         emoji_list = [":)", ":(", ":D", "8-)", ":o", ";)", ":sweat:", ":|", ":*", ":p", ":blush:", ":^)", "|-)", ":inlove:", ":]", ":talk:", ":yawn:", ":puke:", ":emo:", "8-|", ":#", ":nod:", ":shake:", ":^^;", ":whew:", ":clap:", ":bow:", ":roger:", ":flex:", ":dance:", ":/", ":gogo:", ":think:", ":please:", ":quick:", ":anger:", ":devil:", ":lightbulb:", ":*", ":h:", ":F:", ":cracker:", ":eat:", ":^:", ":coffee:", ":beer:", ":handshake:", ":y:"]
         emoji_count = sum(message_body.count(e) for e in emoji_list)
