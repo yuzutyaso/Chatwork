@@ -53,7 +53,20 @@ def call_chatwork_api(endpoint, method='GET', params=None):
         response.raise_for_status() # HTTPエラーの場合に例外を発生させる
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"API呼び出しエラー: {e}")
+        # この部分にエラーメッセージをChatworkに送信する処理を追加
+        error_message = f"🚨 API呼び出しエラーが発生しました。\nエンドポイント: {endpoint}\nメソッド: {method}\nエラー内容: {e}"
+        
+        try:
+            # POSTメソッドでメッセージを送信
+            requests.post(
+                f"https://api.chatwork.com/v2/rooms/{request.json.get('room_id')}/messages",
+                headers={'X-ChatWorkToken': CHATWORK_API_TOKEN},
+                data={'body': error_message}
+            )
+        except Exception as post_error:
+            # 投稿も失敗した場合は、デバッグ用にコンソールに出力
+            print(f"Chatworkへのエラーメッセージ投稿に失敗しました: {post_error}")
+            
         raise
 
 # --- Webhookエンドポイント ---
