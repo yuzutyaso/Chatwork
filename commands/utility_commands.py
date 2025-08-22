@@ -6,7 +6,9 @@ import threading
 import wikipediaapi
 from translate import Translator
 from datetime import datetime
-from ..utils import send_reply, send_message_to_chatwork
+
+# 修正: 相対インポートを絶対インポートに
+from utils import send_reply, send_message_to_chatwork
 
 def wiki_command(room_id, message_id, account_id, message_body):
     """
