@@ -56,17 +56,26 @@ def event_handler():
             return jsonify({"status": "no data"}), 400
 
         event_type = data.get("webhook_event_type")
-        message_id = data.get("chatwork_message_id")
-        room_id = data.get("room_id")
-        account_id = data.get("from_account_id")
         message_body = data.get("body")
+        room_id = data.get("room_id")
+        message_id = data.get("chatwork_message_id")
+        account_id = data.get("from_account_id")
 
+        # Webhookの種類を検証
         if event_type != "message_created":
+            logging.info(f"Ignoring event type: {event_type}")
             return jsonify({"status": "not message_created event"}), 200
 
-        logging.info(f"Received message: {message_body} from room: {room_id}")
+        # message_body が存在するかをチェックする
+        if not message_body:
+            logging.warning("Received a message_created event with no message body.")
+            return jsonify({"status": "no message body"}), 200
 
-        command = message_body.split()[0]
+        logging.info(f"Received message: {message_body} from room: {room_id}")
+        
+        # メッセージがコマンドかどうかをチェック
+        # 大文字小文字を区別せず、先頭のスペースを無視してコマンドを識別
+        command = message_body.split()[0].lower()
         
         if command in COMMANDS:
             COMMANDS[command](room_id, message_id, account_id, message_body)
