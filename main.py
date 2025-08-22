@@ -1,12 +1,16 @@
 import os
 import json
 import logging
+import re
+import traceback
+
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
 from commands.main_commands import test_command, sorry_command, roominfo_command, say_command, weather_command, whoami_command, echo_command, timer_command, time_report_command, delete_command, omikuji_command, ranking_command, quote_command, news_command, info_command
 from commands.utility_commands import wiki_command, coin_command, translate_command, reminder_command
 from commands.admin_commands import log_command, stats_command, recount_command
+from chatwork_api import send_reply
 
 load_dotenv()
 
@@ -67,7 +71,6 @@ def event_handler():
 
         logging.info(f"Received message: {message_body} from room: {room_id}")
 
-        # コマンドを正確に認識するための修正
         first_word = message_body.strip().split()[0].lower()
 
         if first_word in COMMANDS:
@@ -82,6 +85,18 @@ def event_handler():
         return jsonify({"status": "success"}), 200
 
     except Exception as e:
+        # エラーの詳細を取得
+        error_type = type(e).__name__
+        error_message = str(e)
+        error_traceback = traceback.format_exc()
+
+        # エラーメッセージをChatWorkに投稿
+        try:
+            error_text = f"[To:{account_id}] エラーが発生しました。\n\n**エラータイプ:** {error_type}\n**エラーメッセージ:** {error_message}\n\n[hr]\n**トレースバック:**\n[code]\n{error_traceback}\n[/code]"
+            send_reply(room_id, message_id, account_id, error_text)
+        except Exception as api_error:
+            logging.error(f"Failed to send error message to ChatWork: {api_error}", exc_info=True)
+            
         logging.error(f"Error processing webhook event: {e}", exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
 
