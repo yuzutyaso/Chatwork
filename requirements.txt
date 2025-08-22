@@ -7,3 +7,5 @@ schedule
 pytz
 feedparser
 psutil
+translate
+wikipedia-api
