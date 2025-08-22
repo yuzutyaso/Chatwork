@@ -52,7 +52,6 @@ def event_handler():
 
         event_type = data.get("webhook_event_type")
         
-        # message_created イベントのみを処理
         if event_type != "message_created":
             logging.info(f"Ignoring event type: {event_type}")
             return jsonify({"status": "ignored"}), 200
@@ -62,18 +61,21 @@ def event_handler():
         message_id = data.get("chatwork_message_id")
         account_id = data.get("from_account_id")
         
-        # message_body が存在しない場合は処理を終了
-        if not message_body:
-            logging.warning("Received a message_created event with no message body.")
+        if not message_body or not message_body.strip():
+            logging.warning("Received a message_created event with no command message body.")
             return jsonify({"status": "no message body"}), 200
 
         logging.info(f"Received message: {message_body} from room: {room_id}")
 
-        first_word = message_body.strip().split()[0].lower() if message_body.strip() else ""
+        # コマンドを正確に認識するための修正
+        first_word = message_body.strip().split()[0].lower()
 
         if first_word in COMMANDS:
             COMMANDS[first_word](room_id, message_id, account_id, message_body)
             logging.info(f"Command '{first_word}' executed.")
+        elif 'おみくじ' in message_body:
+             omikuji_command(room_id, message_id, account_id, message_body)
+             logging.info("Command 'おみくじ' executed.")
         else:
             logging.info(f"No command found for: {message_body}")
 
