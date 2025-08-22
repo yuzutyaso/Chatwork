@@ -1,7 +1,9 @@
-flask
+Flask
 requests
-python-dotenv
 supabase
-schedule
 gunicorn
+python-dotenv
+schedule
 pytz
+feedparser
+psutil
