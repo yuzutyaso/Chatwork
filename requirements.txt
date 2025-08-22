@@ -1,5 +1,4 @@
 Flask
-chatwork-python
+requests
 google-generativeai
 wikipedia
-requests
