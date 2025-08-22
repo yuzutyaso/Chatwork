@@ -27,7 +27,7 @@ omikuji_history = {}
 
 prefectures_map = {
     "北海道": "Hokkaido", "青森": "Aomori", "岩手": "Iwate", "宮城": "Miyagi", "秋田": "Akita",
-    "山形": "Yamagata", "福島": "Fukushima", "茨城": "Ibaraki", "栃木": "Tochigi", "群馬": "Gunma",
+    "山形": "Yamagata", "福島": "Fukushima", "茨城": "Ibaraki", "栃木": "Tochigi", "群馬": "Gumma",
     "埼玉": "Saitama", "千葉": "Chiba", "東京": "Tokyo", "神奈川": "Kanagawa", "新潟": "Niigata",
     "富山": "Toyama", "石川": "Ishikawa", "福井": "Fukui", "山梨": "Yamanashi", "長野": "Nagano",
     "岐阜": "Gifu", "静岡": "Shizuoka", "愛知": "Aichi", "三重": "Mie", "滋賀": "Shiga",
@@ -67,9 +67,13 @@ def handle_webhook():
 
     if account_id == BOT_ACCOUNT_ID:
         return 'OK'
+    
+    if not room_id:
+        print("Webhook payload does not contain room_id. Skipping.")
+        return 'OK'
 
     # 管理者チェック関数
-    def is_user_admin(room_id, user_id):
+    def is_user_admin(user_id):
         try:
             members = call_chatwork_api(f"rooms/{room_id}/members")
             for member in members:
@@ -79,11 +83,13 @@ def handle_webhook():
         except Exception:
             return False
 
+    is_admin = is_user_admin(account_id)
+
     # 絵文字と[toall]の権限変更ロジック
     emoji_list = [":)", ":(", ":D", "8-)", ":o", ";)", ":sweat:", ":|", ":*", ":p", ":blush:", ":^)", "|-)", ":inlove:", ":]", ":talk:", ":yawn:", ":puke:", ":emo:", "8-|", ":#", ":nod:", ":shake:", ":^^;", ":whew:", ":clap:", ":bow:", ":roger:", ":flex:", ":dance:", ":/", ":gogo:", ":think:", ":please:", ":quick:", ":anger:", ":devil:", ":lightbulb:", ":*", ":h:", ":F:", ":cracker:", ":eat:", ":^:", ":coffee:", ":beer:", ":handshake:", ":y:"]
     emoji_count = sum(message_body.count(e) for e in emoji_list)
 
-    if not is_user_admin(room_id, account_id) and (emoji_count >= 15 or "[toall]" in message_body):
+    if not is_admin and (emoji_count >= 15 or "[toall]" in message_body):
         try:
             members = call_chatwork_api(f"rooms/{room_id}/members")
             for member in members:
@@ -121,7 +127,7 @@ def handle_webhook():
 
     # /ai reset
     if message_body == "/ai reset":
-        if is_user_admin(room_id, account_id):
+        if is_user_admin(account_id):
             if room_id in chat_sessions:
                 del chat_sessions[room_id]
                 reply_body = "チャット履歴をリセットしました。"
@@ -157,7 +163,7 @@ def handle_webhook():
 
     # /see all
     if message_body == "/see all":
-        if not is_user_admin(room_id, account_id):
+        if not is_user_admin(account_id):
             post_message("このコマンドは管理者のみ実行できます。")
             return 'OK'
         try:
@@ -261,7 +267,7 @@ def handle_webhook():
 
     # /echo
     if message_body.startswith("/echo"):
-        if not is_user_admin(room_id, account_id):
+        if not is_user_admin(account_id):
             post_message("このコマンドは管理者のみ実行できます。")
             return 'OK'
         echo_message = message_body[len("/echo "):].strip()
