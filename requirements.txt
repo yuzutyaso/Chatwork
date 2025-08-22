@@ -1,3 +1,5 @@
 Flask
-gunicorn
-python-chatwork
+chatwork-api-py
+google-generativeai
+wikipedia
+requests
