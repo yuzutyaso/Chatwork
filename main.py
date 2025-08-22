@@ -40,6 +40,7 @@ COMMANDS = {
 }
 
 @app.route("/", methods=["POST"])
+@app.route("/callback", methods=["POST"])
 def event_handler():
     """
     ChatWork WebhookからのPOSTリクエストを処理するエンドポイント
@@ -68,7 +69,6 @@ def event_handler():
 
         logging.info(f"Received message: {message_body} from room: {room_id}")
 
-        # コマンドの解析（先頭のスペースをトリムし、小文字に変換）
         first_word = message_body.strip().split()[0].lower() if message_body.strip() else ""
 
         if first_word in COMMANDS:
