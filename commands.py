@@ -158,8 +158,13 @@ def time_report_command(room_id, message_id, account_id, message_body):
     
     if "/時報 OK" in message_body:
         try:
-            supabase.table('hourly_report_rooms').insert({"room_id": room_id, "interval_minutes": 60}).execute()
-            send_reply(room_id, message_id, account_id, "このルームに毎時お知らせを投稿するように設定しました。")
+            # 既に存在するかチェック
+            response = supabase.table('hourly_report_rooms').select('room_id').eq('room_id', room_id).execute()
+            if not response.data:
+                supabase.table('hourly_report_rooms').insert({"room_id": room_id, "interval_minutes": 60}).execute()
+                send_reply(room_id, message_id, account_id, "このルームに毎時お知らせを投稿するように設定しました。")
+            else:
+                send_reply(room_id, message_id, account_id, "このルームは既に時報が設定されています。")
         except Exception as e:
             send_reply(room_id, message_id, account_id, f"設定中にエラーが発生しました: {e}")
             
@@ -419,4 +424,4 @@ COMMANDS = {
     "おみくじ": omikuji_command,
     "/ranking": ranking_command,
     "/recount": recount_command,
-    }
+            }
