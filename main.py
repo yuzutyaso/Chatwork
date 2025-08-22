@@ -1,16 +1,15 @@
 import os
 import time
-import requests
 import schedule
 import threading
 from flask import Flask, request, jsonify
-from datetime import datetime, timedelta
+from datetime import datetime
 from dotenv import load_dotenv
 from pytz import timezone
 
 from db import supabase
 from commands import COMMANDS
-from utils import is_admin, send_message_to_chatwork, change_user_role
+from utils import is_admin, change_user_role, send_reply
 from jobs import time_report_job, ranking_post_job
 
 # 環境変数の読み込み
@@ -60,7 +59,7 @@ def handle_message(room_id, message_id, account_id, message_body):
     if command_name in COMMANDS:
         # 管理者権限が必要なコマンドかチェック
         if command_name in ADMIN_COMMANDS and not is_admin(room_id, account_id):
-            send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nこのコマンドは管理者のみが実行できます。")
+            send_reply(room_id, message_id, account_id, "このコマンドは管理者のみが実行できます。")
             return
             
         # timerコマンドはスレッドで実行
@@ -75,18 +74,18 @@ def handle_message(room_id, message_id, account_id, message_body):
         is_admin_user = is_admin(room_id, account_id)
         if "[toall]" in message_body:
             if is_admin_user:
-                send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n[toall]タグの使用は控えてください。")
+                send_reply(room_id, message_id, account_id, "[toall]タグの使用は控えてください。")
             else:
                 change_user_role(room_id, account_id, 'readonly')
-                send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n[toall]タグが検出されたため、権限を閲覧に変更しました。")
+                send_reply(room_id, message_id, account_id, "[toall]タグが検出されたため、権限を閲覧に変更しました。")
 
         emoji_count = sum(message_body.count(emoji) for emoji in EMOJIS)
         if emoji_count >= 15:
             if is_admin_user:
-                send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n絵文字が多すぎます。ご注意ください。")
+                send_reply(room_id, message_id, account_id, "絵文字が多すぎます。ご注意ください。")
             else:
                 change_user_role(room_id, account_id, 'readonly')
-                send_message_to_chatwork(room_id, f"[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n絵文字が多すぎるため、権限を閲覧に変更しました。")
+                send_reply(room_id, message_id, account_id, "絵文字が多すぎるため、権限を閲覧に変更しました。")
 
 
 # --- Webhookのコールバック関数 ---
