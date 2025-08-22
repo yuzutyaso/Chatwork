@@ -4,7 +4,7 @@ $input_json = $Input | Out-String | ConvertFrom-Json
 # 環境変数からAPIトークンと管理者IDを取得
 $chatworkApiToken = $env:CHATWORK_API_TOKEN
 $adminAccountId = [int]$env:ADMIN_ACCOUNT_ID # 管理者のChatwork account_id
-# 環境変数からbot自身のIDを取得（必要に応じて設定）
+# 環境変数からbot自身のIDを取得
 $botAccountId = [int]$env:BOT_ACCOUNT_ID
 
 # 監視対象の絵文字リスト
@@ -117,7 +117,8 @@ if ($emojiCount -ge 15) {
     }
 } elseif ($messageBody.Contains("[toall]")) {
     if ($isAdministrator) {
-        $warningMsg = "[info][title]⚠️ 注意：[toall]の利用[/title]管理者様、[toall]の利用はメンバーの場合、閲覧権限に変更される原因になります。[/info]"
+        # 修正: [toall]を削除
+        $warningMsg = "[info][title]⚠️ 注意：全体宛の利用[/title]管理者様、全体宛の利用はメンバーの場合、閲覧権限に変更される原因になります。[/info]"
         Send-ChatworkMessage -roomId $roomId -messageBody $warningMsg -headers $headers
     } else {
         Update-ChatworkMemberPermission -roomId $roomId -targetAccountId $senderAccountId -newRole "readonly" -headers $headers
