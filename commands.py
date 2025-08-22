@@ -5,6 +5,8 @@ import requests
 import random
 from datetime import datetime
 from dotenv import load_dotenv
+import feedparser
+import psutil
 
 from db import supabase
 from utils import send_message_to_chatwork, get_chatwork_members, is_admin, change_user_role, send_reply, get_weather_info
@@ -407,6 +409,68 @@ def recount_command(room_id, message_id, account_id, message_body):
     except Exception as e:
         send_reply(room_id, message_id, account_id, f"再集計中に予期せぬエラーが発生しました: {e}")
 
+def news_command(room_id, message_id, account_id, message_body):
+    """
+    /news コマンドの処理
+    主要なニュースサイトの最新記事を取得して表示する
+    """
+    try:
+        urls = {
+            "NHK": "https://www.nhk.or.jp/rss/news/cat0.xml",
+            "朝日新聞": "http://www.asahi.com/rss/asahi-all.xml",
+            "Yahoo!ニュース": "https://news.yahoo.co.jp/rss/topics/top-picks.xml"
+        }
+        
+        news_message = "📰 **最新ニュース**\n---\n"
+        
+        for source, url in urls.items():
+            feed = feedparser.parse(url)
+            if not feed.entries:
+                news_message += f"**{source}**: ニュースの取得に失敗しました。\n"
+                continue
+            
+            news_message += f"**【{source}】**\n"
+            for entry in feed.entries[:3]: # 最新3件を取得
+                title = entry.title
+                link = entry.link
+                news_message += f"・{title}\n  (リンク: {link})\n"
+            news_message += "\n"
+            
+        send_reply(room_id, message_id, account_id, news_message)
+        
+    except Exception as e:
+        send_reply(room_id, message_id, account_id, f"ニュース取得中にエラーが発生しました: {e}")
+
+def info_command(room_id, message_id, account_id, message_body):
+    """
+    /info コマンドの処理
+    ボットが動作しているサーバーのシステム情報を表示する
+    """
+    try:
+        # CPUとメモリの使用率を取得
+        cpu_usage = psutil.cpu_percent(interval=1)
+        mem_info = psutil.virtual_memory()
+        
+        # 稼働時間を取得
+        boot_time = datetime.fromtimestamp(psutil.boot_time())
+        uptime = datetime.now() - boot_time
+        
+        hours, remainder = divmod(uptime.total_seconds(), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        
+        info_message = f"""
+        🤖 **ボットシステム情報**
+        ---
+        **CPU使用率**: {cpu_usage}%
+        **メモリ使用率**: {mem_info.percent}%
+        **稼働時間**: {int(hours)}時間 {int(minutes)}分 {int(seconds)}秒
+        """
+        
+        send_reply(room_id, message_id, account_id, info_message)
+        
+    except Exception as e:
+        send_reply(room_id, message_id, account_id, f"システム情報取得中にエラーが発生しました: {e}")
+
 
 # 全コマンドを辞書にまとめる
 COMMANDS = {
@@ -424,4 +488,6 @@ COMMANDS = {
     "おみくじ": omikuji_command,
     "/ranking": ranking_command,
     "/recount": recount_command,
-            }
+    "/news": news_command,
+    "/info": info_command,
+    }
