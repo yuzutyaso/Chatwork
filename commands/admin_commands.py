@@ -3,8 +3,10 @@ import re
 import psutil
 import requests
 from datetime import datetime
-from ..db import supabase
-from ..utils import send_reply, send_message_to_chatwork, get_chatwork_members
+
+# 修正: 相対インポートを絶対インポートに
+from db import supabase
+from utils import send_reply, send_message_to_chatwork, get_chatwork_members
 
 CHATWORK_API_TOKEN = os.getenv("CHATWORK_API_TOKEN")
 
