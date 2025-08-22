@@ -455,4 +455,82 @@ def recount_command(room_id, message_id, account_id, message_body):
                 "last_message_id": data['last_message_id']
             })
         if insert_data:
-   
+   supabase.table('user_message_counts').insert(insert_data).execute()
+        send_reply(room_id, message_id, account_id, f"ルームID {target_room_id} の過去100件のメッセージの再集計が完了しました。")
+    except requests.exceptions.RequestException as e:
+        send_reply(room_id, message_id, account_id, f"再集計中にAPIエラーが発生しました: {e}")
+    except Exception as e:
+        send_reply(room_id, message_id, account_id, f"再集計中に予期せぬエラーが発生しました: {e}")
+
+def news_command(room_id, message_id, account_id, message_body):
+    try:
+        urls = {
+            "NHK": "https://www.nhk.or.jp/rss/news/cat0.xml",
+            "朝日新聞": "http://www.asahi.com/rss/asahi-all.xml",
+            "Yahoo!ニュース": "https://news.yahoo.co.jp/rss/topics/top-picks.xml"
+        }
+        news_message = "📰 **最新ニュース**\n---\n"
+        for source, url in urls.items():
+            feed = feedparser.parse(url)
+            if not feed.entries:
+                news_message += f"**{source}**: ニュースの取得に失敗しました。\n"
+                continue
+            news_message += f"**【{source}】**\n"
+            for entry in feed.entries[:3]:
+                title = entry.title
+                link = entry.link
+                news_message += f"・{title}\n  (リンク: {link})\n"
+            news_message += "\n"
+        send_reply(room_id, message_id, account_id, news_message)
+    except Exception as e:
+        send_reply(room_id, message_id, account_id, f"ニュース取得中にエラーが発生しました: {e}")
+
+def info_command(room_id, message_id, account_id, message_body):
+    try:
+        cpu_usage = psutil.cpu_percent(interval=1)
+        mem_info = psutil.virtual_memory()
+        boot_time = datetime.fromtimestamp(psutil.boot_time())
+        uptime = datetime.now() - boot_time
+        hours, remainder = divmod(uptime.total_seconds(), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        info_message = f"""
+        🤖 **ボットシステム情報**
+        ---
+        **CPU使用率**: {cpu_usage}%
+        **メモリ使用率**: {mem_info.percent}%
+        **稼働時間**: {int(hours)}時間 {int(minutes)}分 {int(seconds)}秒
+        """
+        send_reply(room_id, message_id, account_id, info_message)
+    except Exception as e:
+        send_reply(room_id, message_id, account_id, f"システム情報取得中にエラーが発生しました: {e}")
+
+# 全コマンドを辞書にまとめる
+COMMANDS = {
+    "/test": test_command,
+    "/sorry": sorry_command,
+    "/roominfo": roominfo_command,
+    "/say": say_command,
+    "/weather": weather_command,
+    "/whoami": whoami_command,
+    "/echo": echo_command,
+    "/timer": timer_command,
+    "/時報": time_report_command,
+    "/削除": delete_command,
+    "/quote": quote_command,
+    "おみくじ": omikuji_command,
+    "/ranking": ranking_command,
+    "/recount": recount_command,
+    "/news": news_command,
+    "/info": info_command,
+    "/wiki": wiki_command,
+    "/coin": coin_command,
+    "/translate": translate_command,
+    "/reminder": reminder_command,
+    "/log": log_command,
+    "/stats": stats_command,
+}
+
+
+
+
+
