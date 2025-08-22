@@ -4,9 +4,12 @@ import time
 import requests
 import random
 import feedparser
+import psutil
 from datetime import datetime
-from ..db import supabase
-from ..utils import send_message_to_chatwork, get_chatwork_members, send_reply, get_weather_info
+
+# 修正: 相対インポートを絶対インポートに
+from db import supabase
+from utils import send_message_to_chatwork, get_chatwork_members, send_reply, get_weather_info
 
 CHATWORK_API_TOKEN = os.getenv("CHATWORK_API_TOKEN")
 
