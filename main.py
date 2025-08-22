@@ -1,127 +1,70 @@
 import os
-import time
-import schedule
-import threading
+import json
+import logging
 from flask import Flask, request, jsonify
-from datetime import datetime
 from dotenv import load_dotenv
-from pytz import timezone
 
-from db import supabase
-from commands import COMMANDS
-from utils import is_admin, change_user_role, send_reply
-from jobs import time_report_job, ranking_post_job
+# 新しいファイル構造から各コマンドをインポート
+# 「.commands.main_commands」のようにドットで始まる相対インポートを使用します。
+from commands.main_commands import COMMANDS as main_commands
+from commands.utility_commands import COMMANDS as utility_commands
+from commands.admin_commands import COMMANDS as admin_commands
 
-# 環境変数の読み込み
+# 環境変数をロード
 load_dotenv()
 
-# --- 環境変数の設定 ---
-BOT_ACCOUNT_ID = os.getenv("BOT_ACCOUNT_ID")
-EMOJIS = [
-    ':)', ':(', ':D', '8-)', ':o', ';)', '((sweat))', ':|', ':*', ':p', '(blush)',
-    ':^)', '|-)', '(inlove)', ':]', '(talk)', '(yawn)', '(puke)', '(emo)', '8-|',
-    ':#', '(nod)', '(shake)', '(^^;)', '(whew)', '(clap)', '(bow)', '(roger)',
-    '(flex)', '(dance)', '(:/)', '(gogo)', '(think)', '(please)', '(quick)',
-    '(anger)', '(devil)', '(lightbulb)', '(*)', '(h)', '(F)', '(cracker)',
-    '(eat)', '(^)', '(coffee)', '(beer)', '(handshake)', '(y)'
-]
+# ロガー設定
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Flaskアプリケーションの初期化
 app = Flask(__name__)
 
-# 管理者権限が必要なコマンドリスト
-ADMIN_COMMANDS = ["/say", "/echo", "/削除", "/時報", "/recount"]
+# 全てのコマンドを一つの辞書にまとめる
+COMMANDS = {}
+COMMANDS.update(main_commands)
+COMMANDS.update(utility_commands)
+COMMANDS.update(admin_commands)
 
-# --- メッセージ処理を関数に分離 ---
-def handle_message(room_id, message_id, account_id, message_body):
+
+@app.route("/", methods=["POST"])
+def event_handler():
     """
-    受信したメッセージを処理し、コマンド実行や権限チェックを行う関数。
+    ChatWork WebhookからのPOSTリクエストを処理するエンドポイント
     """
-    # ユーザーごとのメッセージ数カウント
-    today = datetime.now().date().isoformat()
-    response_user = supabase.table('user_message_counts').select('message_count', 'last_message_id').eq('user_id', account_id).eq('room_id', room_id).eq('message_date', today).execute()
-    
-    if response_user.data:
-        current_count = response_user.data[0]['message_count']
-        last_message_id_str = response_user.data[0].get('last_message_id')
-        last_message_id = int(last_message_id_str) if last_message_id_str is not None else None
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"status": "no data"}), 400
+
+        # ChatWork Webhookのデータ構造から必要な情報を抽出
+        event_type = data.get("webhook_event_type")
+        message_id = data.get("chatwork_message_id")
+        room_id = data.get("room_id")
+        account_id = data.get("from_account_id")
+        message_body = data.get("body")
+
+        # Webhookの種類を検証
+        if event_type != "message_created":
+            return jsonify({"status": "not message_created event"}), 200
+
+        logging.info(f"Received message: {message_body} from room: {room_id}")
+
+        # メッセージがコマンドかどうかをチェック
+        # 大文字小文字を区別せず、先頭のスペースを無視してコマンドを識別
+        command = message_body.split()[0].lower()
         
-        if last_message_id is None or int(message_id) > last_message_id:
-            supabase.table('user_message_counts').update({"message_count": current_count + 1, "last_message_id": message_id}).eq('user_id', account_id).eq('room_id', room_id).eq('message_date', today).execute()
-    else:
-        supabase.table('user_message_counts').insert({"user_id": account_id, "room_id": room_id, "message_date": today, "message_count": 1, "last_message_id": message_id}).execute()
-
-    # コマンドの判定
-    parts = message_body.split()
-    command_name = parts[0] if parts else ""
-    
-    # コマンドの実行
-    if command_name in COMMANDS:
-        # 管理者権限が必要なコマンドかチェック
-        if command_name in ADMIN_COMMANDS and not is_admin(room_id, account_id):
-            send_reply(room_id, message_id, account_id, "このコマンドは管理者のみが実行できます。")
-            return
-            
-        # timerコマンドはスレッドで実行
-        if command_name == "/timer":
-            thread = threading.Thread(target=COMMANDS[command_name], args=(room_id, message_id, account_id, message_body))
-            thread.start()
+        # コマンドの実行
+        if command in COMMANDS:
+            COMMANDS[command](room_id, message_id, account_id, message_body)
+            logging.info(f"Command '{command}' executed.")
         else:
-            COMMANDS[command_name](room_id, message_id, account_id, message_body)
-    
-    # 特殊なメッセージの処理
-    else:
-        is_admin_user = is_admin(room_id, account_id)
-        if "[toall]" in message_body:
-            if is_admin_user:
-                send_reply(room_id, message_id, account_id, "[toall]タグの使用は控えてください。")
-            else:
-                change_user_role(room_id, account_id, 'readonly')
-                send_reply(room_id, message_id, account_id, "[toall]タグが検出されたため、権限を閲覧に変更しました。")
+            logging.info(f"No command found for: {message_body}")
 
-        emoji_count = sum(message_body.count(emoji) for emoji in EMOJIS)
-        if emoji_count >= 15:
-            if is_admin_user:
-                send_reply(room_id, message_id, account_id, "絵文字が多すぎます。ご注意ください。")
-            else:
-                change_user_role(room_id, account_id, 'readonly')
-                send_reply(room_id, message_id, account_id, "絵文字が多すぎるため、権限を閲覧に変更しました。")
+        return jsonify({"status": "success"}), 200
 
+    except Exception as e:
+        logging.error(f"Error processing webhook event: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-# --- Webhookのコールバック関数 ---
-@app.route('/callback', methods=['POST'])
-def chatwork_callback():
-    data = request.json
-    if data and data['webhook_event_type'] == 'message_created':
-        room_id = data['webhook_event']['room_id']
-        message_id = data['webhook_event']['message_id']
-        account_id = data['webhook_event']['account_id']
-        message_body = data['webhook_event']['body']
-        
-        if str(account_id) == str(BOT_ACCOUNT_ID):
-            return jsonify({'status': 'ok'})
-
-        handle_message(room_id, message_id, account_id, message_body)
-    
-    return jsonify({'status': 'ok'})
-
-# --- スケジューラースレッド ---
-def run_scheduler():
-    """
-    スケジュールされたジョブを実行するための専用スレッド。
-    """
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
-
-# --- Flaskアプリケーションの実行 ---
-if __name__ == '__main__':
-    scheduler_thread = threading.Thread(target=run_scheduler)
-    scheduler_thread.start()
-
-    jst_tz = timezone('Asia/Tokyo')
-    schedule.every().day.at("00:00", tz=jst_tz).do(ranking_post_job)
-    schedule.every(1).minutes.do(time_report_job)
-    
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
