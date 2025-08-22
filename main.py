@@ -1,117 +1,246 @@
 import os
+import random
 import re
-import requests
-from flask import Flask, request
+import time
+from datetime import datetime
+from flask import Flask, request, jsonify
+from chatwork import Chatwork
+import logging
 
-# --- 初期設定 ---
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
 
-# 環境変数から機密情報を取得
-# ※ Renderの環境変数に設定してください
-CHATWORK_API_TOKEN = os.environ.get("CHATWORK_API_TOKEN")
-ADMIN_ACCOUNT_ID = int(os.environ.get("ADMIN_ACCOUNT_ID", 0))
-BOT_ACCOUNT_ID = int(os.environ.get("BOT_ACCOUNT_ID", 0))
+# 環境変数からChatwork APIトークンを取得
+chatwork_token = os.environ.get('CHATWORK_API_TOKEN')
+chatwork = None
+bot_account_id = None
+
+if chatwork_token:
+    try:
+        chatwork = Chatwork(chatwork_token)
+        # ボット自身のIDを自動で取得
+        my_status = chatwork.get_my_status()
+        bot_account_id = my_status['account_id']
+        logging.info(f"Bot's account ID is {bot_account_id}")
+    except Exception as e:
+        logging.error(f"Error initializing Chatwork client or getting bot's account ID: {e}")
+else:
+    logging.error("CHATWORK_API_TOKEN environment variable is not set.")
 
 # 監視対象の絵文字リスト
-EMOJIS = [
-    ":)", ":(", ":D", "8-)", ":o", ";)", ":sweat:", ":|", ":*", ":p",
-    ":blush:", ":^)", ":-)", ":inlove:", ":]", "(talk)", "(yawn)",
-    "(puke)", "(emo)", "8-|", ":#", "(nod)", "(shake)", "(^^;)",
-    "(whew)", "(clap)", "(bow)", "(roger)", "(flex)", "(dance)",
-    ":/", "(gogo)", "(think)", "(please)", "(quick)", "(anger)",
-    "(devil)", "(lightbulb)", "(*)", "(h)", "(F)", "(cracker)",
-    "(eat)", "(^)", "(coffee)", "(beer)", "(handshake)", "(y)"
+EMOJI_LIST = [
+    ':)', ':(', ':D', '8-)', ':o', ';)', ';((sweat)', ':|', ':*', ':p', '(blush)',
+    ':^)', '|-)', '(inlove)', ']:)', '(talk)', '(yawn)', '(puke)', '(emo)', '8-|',
+    ':#)', '(nod)', '(shake)', '(^^;)', '(whew)', '(clap)', '(bow)', '(roger)',
+    '(flex)', '(dance)', ':/', '(gogo)', '(think)', '(please)', '(quick)', '(anger)',
+    '(devil)', '(lightbulb)', '(*)', '(h)', '(F)', '(cracker)', '(eat)', '(^)',
+    '(coffee)', '(beer)', '(handshake)', '(y)'
 ]
 
-# --- API通信関数 ---
-def send_chatwork_message(room_id, message_body):
-    """Chatwork APIを使ってメッセージを送信する"""
-    url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"
-    headers = {"X-Chatworktoken": CHATWORK_API_TOKEN}
-    data = {"body": message_body}
-    try:
-        response = requests.post(url, headers=headers, data=data)
-        response.raise_for_status()
-        print("メッセージを送信しました。")
-    except requests.exceptions.RequestException as e:
-        print(f"メッセージ送信エラー: {e}")
+def contains_too_many_emojis(text):
+    """メッセージ内の絵文字の数をカウントする"""
+    count = 0
+    for emoji in EMOJI_LIST:
+        count += text.count(emoji)
+    return count >= 15
 
-def update_member_permission(room_id, target_account_id, new_role):
-    """ユーザーの権限を変更する"""
-    url = f"https://api.chatwork.com/v2/rooms/{room_id}/members"
-    headers = {"X-Chatworktoken": CHATWORK_API_TOKEN}
+def get_admin_account_id(room_id):
+    """ルームIDから管理者のアカウントIDを取得する"""
+    if not chatwork:
+        return None
     try:
-        # 既存のメンバーリストを取得
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        members = response.json()
-        
-        # ターゲットユーザーの権限を更新
+        members = chatwork.get_room_members(room_id=room_id)
         for member in members:
-            if member["account_id"] == target_account_id:
-                member["role"] = new_role
-                break
-        
-        # PUTリクエスト用のデータを準備
-        data = {
-            "members_admin_ids": ",".join(str(m["account_id"]) for m in members if m["role"] == "admin"),
-            "members_member_ids": ",".join(str(m["account_id"]) for m in members if m["role"] == "member"),
-            "members_readonly_ids": ",".join(str(m["account_id"]) for m in members if m["role"] == "readonly")
-        }
-        
-        print(f"更新メンバーリスト: {data}")
-        response = requests.put(url, headers=headers, data=data)
-        response.raise_for_status()
-        print("メンバー権限を更新しました。")
-    except requests.exceptions.RequestException as e:
-        print(f"メンバー権限更新エラー: {e}")
+            if member['role'] == 'admin':
+                return member['account_id']
+    except Exception as e:
+        logging.error(f"Error getting room members for room {room_id}: {e}")
+    return None
 
-# --- メインロジック ---
-@app.route('/webhook', methods=['POST'])
+def draw_omikuji():
+    """確率に基づいておみくじを引く"""
+    results = {
+        "大吉": 1,
+        "吉": 3,
+        "中吉": 5,
+        "小吉": 10,
+        "末吉": 20,
+        "凶": 30,
+        "大凶": 31
+    }
+    
+    total_weight = sum(results.values())
+    rand_num = random.uniform(0, total_weight)
+    current_weight = 0
+    
+    for result, weight in results.items():
+        current_weight += weight
+        if rand_num < current_weight:
+            return result
+    return "大凶"
+
+@app.route('/', methods=['POST'])
 def webhook():
-    """Chatworkからのウェブフックリクエストを処理する"""
+    """ChatworkのWebhookを受け取るエンドポイント"""
     try:
         data = request.json
-        room_id = data.get("room_id")
-        message_body = data.get("body")
-        sender_account_id = data.get("account", {}).get("account_id")
-        
-        # 送信者がbot自身なら処理をスキップ
-        if sender_account_id == BOT_ACCOUNT_ID:
-            print("送信者はbot自身です。処理をスキップします。")
-            return "OK", 200
+        event_type = data.get('webhook_event_type')
 
-        is_administrator = (sender_account_id == ADMIN_ACCOUNT_ID)
+        if event_type == 'message':
+            event = data['webhook_event']
+            room_id = event['room_id']
+            message_body = event['body']
+            account_id = event['account_id']
+            message_id = event['message_id']
 
-        # 絵文字の数をカウント
-        emoji_count = sum(message_body.count(emoji) for emoji in EMOJIS)
+            # ボット自身の投稿は無視
+            if bot_account_id and account_id == bot_account_id:
+                logging.info(f"Message from bot account {bot_account_id}. Skipping.")
+                return jsonify({'status': 'ignored'}), 200
 
-        if emoji_count >= 15:
-            if is_administrator:
-                warning_msg = "[info][title]⚠️ 注意：絵文字の過剰な利用[/title]管理者様、メッセージ内の絵文字数が多すぎます。メンバーの場合は閲覧権限に変更されます。[/info]"
-                send_chatwork_message(room_id, warning_msg)
+            # 削除コマンドを正規表現でチェック
+            delete_pattern = re.compile(rf'\[rp aid={bot_account_id} to=(\d+)-(\d+)\]\[pname:{bot_account_id}\]さん\n削除')
+            match = delete_pattern.match(message_body)
+
+            if match:
+                target_room_id = int(match.group(1))
+                target_message_id = int(match.group(2))
+                
+                logging.info(f"Deletion command detected. Deleting message_id: {target_message_id} in room_id: {target_room_id}")
+                
+                try:
+                    chatwork.delete_message(room_id=target_room_id, message_id=target_message_id)
+                    reply_message = "メッセージを削除しました。"
+                    chatwork.post_message(room_id=room_id, body=reply_message)
+                    logging.info("Message deleted successfully.")
+                except Exception as e:
+                    logging.error(f"Failed to delete message: {e}")
+                    reply_message = "メッセージの削除に失敗しました。"
+                    chatwork.post_message(room_id=room_id, body=reply_message)
+
+                return jsonify({'status': 'ok'}), 200
+            
+            # /info コマンド
+            if message_body.strip() == '/info':
+                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                reply_message = (
+                    f'[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n'
+                    f'ボットは正常に稼働しています！✨\n'
+                    f'ボットのアカウントID: {bot_account_id}\n'
+                    f'現在時刻: {current_time}'
+                )
+                if chatwork:
+                    chatwork.post_message(room_id=room_id, body=reply_message)
+                return jsonify({'status': 'ok'}), 200
+            
+            # おみくじ機能
+            if "おみくじ" in message_body:
+                result = draw_omikuji()
+                reply_message = f'[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nあなたの運勢は【{result}】です！'
+                if chatwork:
+                    chatwork.post_message(room_id=room_id, body=reply_message)
+                return jsonify({'status': 'ok'}), 200
+
+            # /roominfo/ コマンド
+            if message_body.startswith('/roominfo/'):
+                target_room_id = message_body.replace('/roominfo/', '').strip()
+                try:
+                    target_room_id = int(target_room_id)
+                    
+                    my_rooms = chatwork.get_my_rooms()
+                    is_member = any(room['room_id'] == target_room_id for room in my_rooms)
+                    
+                    if not is_member:
+                        reply_message = f'[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n指定された部屋には所属していません。'
+                    else:
+                        room_info = chatwork.get_room_info(room_id=target_room_id)
+                        messages = chatwork.get_messages(room_id=target_room_id, limit=1)
+                        latest_message_id = messages[0]['message_id'] if messages else 'N/A'
+                        
+                        reply_message = (
+                            f'[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n'
+                            f'部屋情報\n'
+                            f'--------------------\n'
+                            f'部屋名: {room_info["name"]}\n'
+                            f'最新メッセージID: {latest_message_id}\n'
+                            f'最新メッセージ投稿日時: {messages[0]["send_time"]} (UNIX時間)\n'
+                            f'--------------------'
+                        )
+
+                except ValueError:
+                    reply_message = f'[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nルームIDは数字で指定してください。例：`/roominfo/12345`'
+                except Exception as e:
+                    logging.error(f"Error fetching room info: {e}")
+                    reply_message = f'[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n部屋情報の取得中にエラーが発生しました。'
+                
+                if chatwork:
+                    chatwork.post_message(room_id=room_id, body=reply_message)
+                return jsonify({'status': 'ok'}), 200
+
+            # /coin コマンド (コイントス)
+            if message_body.startswith('/coin'):
+                coin_result = random.choice(['表', '裏'])
+                reply_message = f'[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nコイントスの結果は「{coin_result}」でした。'
+                if chatwork:
+                    chatwork.post_message(room_id=room_id, body=reply_message)
+                return jsonify({'status': 'ok'}), 200
+
+            # /timer コマンド
+            if message_body.startswith('/timer'):
+                try:
+                    timer_string = message_body.replace('/timer', '').strip()
+                    if 'm' in timer_string:
+                        minutes = int(timer_string.replace('m', ''))
+                        seconds = minutes * 60
+                        reply_message = f'[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{minutes}分間のタイマーをセットしました。'
+                    elif 's' in timer_string:
+                        seconds = int(timer_string.replace('s', ''))
+                        reply_message = f'[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\n{seconds}秒間のタイマーをセットしました。'
+                    else:
+                        reply_message = f'[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nタイマーの時間を指定してください（例：`/timer 5m` または `/timer 30s`）。'
+                        if chatwork:
+                            chatwork.post_message(room_id=room_id, body=reply_message)
+                        return jsonify({'status': 'ok'}), 200
+
+                    if chatwork:
+                        chatwork.post_message(room_id=room_id, body=reply_message)
+                        time.sleep(seconds)
+                        finish_message = f'[To:{account_id}] タイマーが終了しました！'
+                        chatwork.post_message(room_id=room_id, body=finish_message)
+                except Exception as e:
+                    logging.error(f"Error setting timer: {e}")
+                    reply_message = f'[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nタイマー設定中にエラーが発生しました。'
+                    if chatwork:
+                        chatwork.post_message(room_id=room_id, body=reply_message)
+                
+                return jsonify({'status': 'ok'}), 200
+            
+            # 以下、既存の権限変更ロジック
+            admin_account_id = get_admin_account_id(room_id)
+            if account_id == admin_account_id:
+                logging.info(f"Message from admin account {admin_account_id}. Skipping.")
+                return jsonify({'status': 'ignored'}), 200
+
+            should_change_role = False
+            if '[toall]' in message_body:
+                should_change_role = True
+                logging.info(f"[toall] detected in message from account {account_id}.")
+            elif contains_too_many_emojis(message_body):
+                should_change_role = True
+                logging.info(f"Too many emojis detected in message from account {account_id}.")
+
+            if should_change_role and chatwork:
+                chatwork.update_room_role(room_id=room_id, members=[account_id], role='readonly')
+                reply_message = f'[rp aid={account_id} to={room_id}-{message_id}][pname:{account_id}]さん\nあなたのメッセージがルームルールに違反したため、権限が閲覧者に変更されました。'
+                chatwork.post_message(room_id=room_id, body=reply_message)
+                logging.info(f'Role of account {account_id} changed to readonly in room {room_id}.')
             else:
-                update_member_permission(room_id, sender_account_id, "readonly")
-        
-        elif "[toall]" in message_body:
-            if is_administrator:
-                warning_msg = "[info][title]⚠️ 注意：全体宛の利用[/title]管理者様、全体宛の利用はメンバーの場合、閲覧権限に変更される原因になります。[/info]"
-                send_chatwork_message(room_id, warning_msg)
-            else:
-                update_member_permission(room_id, sender_account_id, "readonly")
-
-        return "OK", 200
-
+                logging.info(f"Message from account {account_id} does not require a role change.")
+                
+        return jsonify({'status': 'ok'}), 200
     except Exception as e:
-        print(f"Webhook処理エラー: {e}")
-        return "Internal Server Error", 500
+        logging.error(f"Error processing webhook: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
-# --- アプリケーションの起動 ---
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    # Werkzeugの開発サーバー警告を非表示にする
-    import logging
-    log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)
-    
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=5000)
